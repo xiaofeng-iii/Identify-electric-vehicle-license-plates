@@ -34,13 +34,14 @@ PLATE_ASPECT_RATIO_MIN = 2.0
 PLATE_ASPECT_RATIO_MAX = 4.0
 
 # 车牌面积范围 (相对于图像面积的比例)
-PLATE_AREA_MIN_RATIO = 0.005
-PLATE_AREA_MAX_RATIO = 0.15
+PLATE_AREA_MIN_RATIO = 0.001   # 最小面积
+PLATE_AREA_MAX_RATIO = 0.08    # 降低最大面积，排除过大区域
 
 # ==================== HSV颜色阈值 ====================
 # 白色车牌 (电动车常见)
-WHITE_LOWER = (0, 0, 180)
-WHITE_UPPER = (180, 30, 255)
+# 注意：S值不能太低，否则会把灰色地面误识别为白色
+WHITE_LOWER = (0, 0, 200)
+WHITE_UPPER = (180, 50, 255)
 
 # 蓝色车牌
 BLUE_LOWER = (100, 80, 80)
@@ -55,8 +56,17 @@ GREEN_LOWER = (35, 80, 80)
 GREEN_UPPER = (85, 255, 255)
 
 # ==================== 形态学操作参数 ====================
-# 闭运算核大小
-MORPH_CLOSE_KERNEL = (25, 10)
+# 颜色定位闭运算核大小 - 适中大小，连接字符但不连接相邻物体
+MORPH_CLOSE_KERNEL_COLOR = (17, 5)
+# 边缘定位闭运算核大小 - 较小以保持边缘细节
+MORPH_CLOSE_KERNEL_EDGE = (15, 5)
+
+# ==================== 轮廓筛选参数 ====================
+# 矩形度阈值 (轮廓面积/外接矩形面积)，车牌应该接近矩形
+PLATE_RECTANGULARITY_MIN = 0.5
+
+# 边缘密度阈值：车牌内部应有足够的字符边缘
+PLATE_EDGE_DENSITY_MIN = 0.06
 
 # ==================== 字符分割参数 ====================
 # 标准字符模板大小

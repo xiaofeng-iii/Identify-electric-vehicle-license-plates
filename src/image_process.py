@@ -9,7 +9,15 @@ import os
 from config import (
     GAUSSIAN_KERNEL_SIZE, GAUSSIAN_SIGMA,
     CLAHE_CLIP_LIMIT, CLAHE_TILE_SIZE,
-    DEBUG_MODE, DEBUG_DIR
+    DEBUG_MODE, DEBUG_DIR,
+    PLATE_ASPECT_RATIO_MIN, PLATE_ASPECT_RATIO_MAX,
+    PLATE_AREA_MIN_RATIO, PLATE_AREA_MAX_RATIO,
+    PLATE_RECTANGULARITY_MIN, PLATE_EDGE_DENSITY_MIN,
+    WHITE_LOWER, WHITE_UPPER,
+    BLUE_LOWER, BLUE_UPPER,
+    YELLOW_LOWER, YELLOW_UPPER,
+    GREEN_LOWER, GREEN_UPPER,
+    MORPH_CLOSE_KERNEL_COLOR, MORPH_CLOSE_KERNEL_EDGE
 )
 
 
@@ -180,6 +188,601 @@ def preprocess_image(image_path, save_debug=True, output_dir=DEBUG_DIR):
     return image, processed
 
 
+class PlateLocator:
+    """车牌定位类：使用颜色和边缘两种方法定位车牌"""
+
+    def __init__(self, debug=DEBUG_MODE):
+        """
+        初始化车牌定位器
+
+        Args:
+            debug: 是否保存调试图片
+        """
+        self.debug = debug
+        self.debug_images = {}
+
+    def _color_segmentation(self, image, color_lower, color_upper):
+        """
+        颜色分割：在HSV空间中提取指定颜色区域
+
+        Args:
+            image: BGR格式图像
+            color_lower: HSV下界 (H, S, V)
+            color_upper: HSV上界 (H, S, V)
+
+        Returns:
+            二值化掩码图像
+        """
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, np.array(color_lower), np.array(color_upper))
+        return mask
+
+    def color_locate(self, image):
+        """
+        颜色定位法：通过HSV颜色空间定位车牌
+
+        支持白色、蓝色、黄色、绿色车牌
+
+        Args:
+            image: BGR格式原始图像
+
+        Returns:
+            融合后的二值化掩码
+        """
+        # 分别提取各颜色区域
+        white_mask = self._color_segmentation(image, WHITE_LOWER, WHITE_UPPER)
+        blue_mask = self._color_segmentation(image, BLUE_LOWER, BLUE_UPPER)
+        yellow_mask = self._color_segmentation(image, YELLOW_LOWER, YELLOW_UPPER)
+        green_mask = self._color_segmentation(image, GREEN_LOWER, GREEN_UPPER)
+
+        # 融合所有颜色掩码
+        combined_mask = cv2.bitwise_or(white_mask, blue_mask)
+        combined_mask = cv2.bitwise_or(combined_mask, yellow_mask)
+        combined_mask = cv2.bitwise_or(combined_mask, green_mask)
+
+        # 保存调试图片
+        if self.debug:
+            self.debug_images['color_white_mask'] = white_mask.copy()
+            self.debug_images['color_blue_mask'] = blue_mask.copy()
+            self.debug_images['color_yellow_mask'] = yellow_mask.copy()
+            self.debug_images['color_green_mask'] = green_mask.copy()
+            self.debug_images['color_combined_mask'] = combined_mask.copy()
+
+        return combined_mask
+
+    def color_locate_v2(self, image):
+        """
+        颜色定位法v2：使用边缘辅助的颜色定位
+
+        先找颜色区域，再用边缘检测精确定位边框
+
+        Args:
+            image: BGR格式原始图像
+
+        Returns:
+            候选车牌轮廓列表
+        """
+        # 获取颜色掩码
+        color_mask = self.color_locate(image)
+
+        # 使用较小的闭运算，仅连接相邻字符
+        kernel_small = cv2.getStructuringElement(cv2.MORPH_RECT, (10, 3))
+        closed = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel_small)
+
+        # 使用RETR_TREE获取轮廓层次结构
+        contours, hierarchy = cv2.findContours(
+            closed, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        if hierarchy is None:
+            return []
+
+        # 找有子轮廓的区域（车牌内有字符）
+        hierarchy = hierarchy[0]
+        candidates_contours = []
+
+        for i, (contour, h) in enumerate(zip(contours, hierarchy)):
+            # h = [next, prev, child, parent]
+            # 检查是否有子轮廓
+            child_idx = h[2]
+            if child_idx == -1:
+                # 没有子轮廓，但仍可能是车牌（被字符完全覆盖）
+                # 使用面积和长宽比筛选
+                area = cv2.contourArea(contour)
+                if area < 500:  # 太小的跳过
+                    continue
+                candidates_contours.append(contour)
+            else:
+                # 有子轮廓，计算子轮廓数量
+                child_count = 0
+                idx = child_idx
+                while idx != -1:
+                    child_count += 1
+                    idx = hierarchy[idx][0]  # next sibling
+
+                # 车牌通常有5-8个字符
+                if child_count >= 3:
+                    candidates_contours.append(contour)
+
+        if self.debug:
+            self.debug_images['color_v2_closed'] = closed.copy()
+
+        return candidates_contours
+
+    def rectangle_locate(self, image):
+        """
+        矩形定位法：直接检测图像中的矩形边框
+
+        车牌通常有明显的矩形边框，利用此特征定位
+
+        Args:
+            image: BGR格式原始图像
+
+        Returns:
+            候选车牌轮廓列表
+        """
+        # 转灰度
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        # 双边滤波：保边去噪
+        blurred = cv2.bilateralFilter(gray, 11, 17, 17)
+
+        # Canny边缘检测
+        edges = cv2.Canny(blurred, 30, 200)
+
+        # 膨胀连接断开的边缘
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        edges = cv2.dilate(edges, kernel, iterations=1)
+
+        # 查找轮廓
+        contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+        candidates = []
+        for contour in contours:
+            # 轮廓近似，减少点数
+            peri = cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
+
+            # 筛选近似矩形（顶点数4-12，允许一定不规则）
+            if len(approx) >= 4 and len(approx) <= 12:
+                candidates.append(contour)
+
+        if self.debug:
+            self.debug_images['rectangle_edges'] = edges.copy()
+
+        return candidates
+
+    def edge_locate(self, image):
+        """
+        边缘定位法：通过Sobel边缘检测定位车牌
+
+        利用车牌区域垂直边缘丰富的特点进行定位
+
+        Args:
+            image: BGR格式原始图像
+
+        Returns:
+            边缘检测后的二值化图像
+        """
+        # 转换为灰度图
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        # 高斯滤波降噪
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+        # Sobel垂直边缘检测 (检测x方向梯度，即垂直边缘)
+        sobel_x = cv2.Sobel(blurred, cv2.CV_64F, 1, 0, ksize=3)
+        sobel_x = np.absolute(sobel_x)
+        sobel_x = np.uint8(255 * sobel_x / np.max(sobel_x)) if np.max(sobel_x) > 0 else np.uint8(sobel_x)
+
+        # Otsu自动阈值二值化
+        _, binary = cv2.threshold(sobel_x, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+        if self.debug:
+            self.debug_images['edge_sobel'] = sobel_x.copy()
+            self.debug_images['edge_binary'] = binary.copy()
+
+        return binary
+
+    def morphology_process(self, binary_image, kernel_size=None):
+        """
+        形态学处理：通过闭运算连接断开的区域
+
+        Args:
+            binary_image: 二值化图像
+            kernel_size: 闭运算核大小，None则使用默认值
+
+        Returns:
+            形态学处理后的图像
+        """
+        if kernel_size is None:
+            kernel_size = MORPH_CLOSE_KERNEL_COLOR
+
+        # 创建形态学核
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_RECT,
+            kernel_size
+        )
+
+        # 闭运算：先膨胀后腐蚀，用于连接断开的边缘
+        closed = cv2.morphologyEx(binary_image, cv2.MORPH_CLOSE, kernel)
+
+        # 开运算：先腐蚀后膨胀，去除小噪点
+        kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        opened = cv2.morphologyEx(closed, cv2.MORPH_OPEN, kernel_open)
+
+        if self.debug:
+            self.debug_images['morphology_closed'] = closed.copy()
+            self.debug_images['morphology_opened'] = opened.copy()
+
+        return opened
+
+    def filter_candidates(self, contours, image_shape, debug_filter=False):
+        """
+        筛选候选区域：根据长宽比、面积和矩形度过滤轮廓
+
+        Args:
+            contours: 轮廓列表
+            image_shape: 图像尺寸 (height, width, ...)
+            debug_filter: 是否输出过滤调试信息
+
+        Returns:
+            符合条件的候选矩形列表，每个元素为 (rect, box, score)
+            - rect: 最小外接矩形 (center, size, angle)
+            - box: 四个角点坐标
+            - score: 评分 (越高越可能是车牌)
+        """
+        img_height, img_width = image_shape[:2]
+        img_area = img_height * img_width
+        candidates = []
+
+        for i, contour in enumerate(contours):
+            # 计算轮廓面积
+            area = cv2.contourArea(contour)
+
+            # 面积过滤
+            if area < img_area * PLATE_AREA_MIN_RATIO:
+                if debug_filter:
+                    print(f"    轮廓{i}: 面积{area:.0f}太小 (min={img_area * PLATE_AREA_MIN_RATIO:.0f})")
+                continue
+            if area > img_area * PLATE_AREA_MAX_RATIO:
+                if debug_filter:
+                    print(f"    轮廓{i}: 面积{area:.0f}太大 (max={img_area * PLATE_AREA_MAX_RATIO:.0f})")
+                continue
+
+            # 获取最小外接矩形
+            rect = cv2.minAreaRect(contour)
+            box = cv2.boxPoints(rect)
+            box = np.int32(box)
+
+            # 获取矩形宽高 (确保宽>高)
+            width, height = rect[1]
+            if width < height:
+                width, height = height, width
+
+            # 避免除零
+            if height == 0 or width == 0:
+                continue
+
+            # 计算矩形度 (轮廓面积 / 外接矩形面积)
+            rect_area = width * height
+            rectangularity = area / rect_area
+
+            # 矩形度过滤：车牌应该是比较规整的矩形
+            if rectangularity < PLATE_RECTANGULARITY_MIN:
+                if debug_filter:
+                    print(f"    轮廓{i}: 矩形度{rectangularity:.2f}太低 (min={PLATE_RECTANGULARITY_MIN})")
+                continue
+
+            # 计算长宽比
+            aspect_ratio = width / height
+
+            # 长宽比过滤 (关键：排除广告文字等干扰)
+            if aspect_ratio < PLATE_ASPECT_RATIO_MIN or aspect_ratio > PLATE_ASPECT_RATIO_MAX:
+                if debug_filter:
+                    print(f"    轮廓{i}: 长宽比{aspect_ratio:.2f}不符合 ({PLATE_ASPECT_RATIO_MIN}~{PLATE_ASPECT_RATIO_MAX})")
+                continue
+
+            # 计算评分：长宽比越接近3越好（中国车牌标准比例约为3:1）
+            ratio_score = 1.0 - abs(aspect_ratio - 3.0) / 2.0
+            # 矩形度越高越好
+            rect_score = rectangularity
+            # 综合评分
+            score = ratio_score * 0.6 + rect_score * 0.4
+
+            if debug_filter:
+                print(f"    轮廓{i}: 通过! 面积={area:.0f}, 长宽比={aspect_ratio:.2f}, 矩形度={rectangularity:.2f}")
+
+            candidates.append((rect, box, score))
+
+        # 按评分排序
+        candidates.sort(key=lambda x: x[2], reverse=True)
+
+        return candidates
+
+    def find_contours(self, binary_image):
+        """
+        查找轮廓
+
+        Args:
+            binary_image: 二值化图像
+
+        Returns:
+            轮廓列表
+        """
+        contours, _ = cv2.findContours(
+            binary_image,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE
+        )
+        return contours
+
+    def locate(self, image, method='combined'):
+        """
+        定位车牌：综合使用颜色和边缘方法
+
+        Args:
+            image: BGR格式原始图像
+            method: 定位方法
+                - 'color': 仅使用颜色定位
+                - 'edge': 仅使用边缘定位
+                - 'combined': 综合使用两种方法（默认）
+
+        Returns:
+            候选车牌区域列表，每个元素为 (rect, box, score)
+        """
+        all_candidates = []
+        img_shape = image.shape
+
+        if method in ('color', 'combined'):
+            # 矩形定位法 - 直接检测矩形边框
+            print("  [矩形定位]")
+            rect_contours = self.rectangle_locate(image)
+            print(f"    找到 {len(rect_contours)} 个候选轮廓")
+            rect_candidates = self.filter_candidates(rect_contours, img_shape)
+            all_candidates.extend(rect_candidates)
+
+            # 颜色定位v2 - 使用层次结构检测带字符的区域
+            print("  [颜色定位v2]")
+            color_contours = self.color_locate_v2(image)
+            print(f"    找到 {len(color_contours)} 个候选轮廓")
+            color_candidates = self.filter_candidates(color_contours, img_shape)
+            all_candidates.extend(color_candidates)
+
+            if self.debug:
+                color_mask = self.color_locate(image)
+                color_processed = self.morphology_process(color_mask, MORPH_CLOSE_KERNEL_COLOR)
+                self.debug_images['locate_color_result'] = color_processed.copy()
+
+        if method in ('edge', 'combined'):
+            # 边缘定位 - 使用较小的核保持细节
+            edge_mask = self.edge_locate(image)
+            edge_processed = self.morphology_process(edge_mask, MORPH_CLOSE_KERNEL_EDGE)
+            edge_contours = self.find_contours(edge_processed)
+            edge_candidates = self.filter_candidates(edge_contours, img_shape)
+            all_candidates.extend(edge_candidates)
+
+            if self.debug:
+                self.debug_images['locate_edge_result'] = edge_processed.copy()
+
+        # 合并重叠候选区域
+        merged_candidates = self._merge_overlapping(all_candidates)
+
+        # 边缘密度验证：过滤掉内部没有足够字符特征的区域
+        verified_candidates = []
+        for rect, box, score in merged_candidates:
+            edge_density = self._calculate_edge_density(image, rect, box)
+            print(f"  候选区域: 中心={rect[0]}, 边缘密度={edge_density:.4f}")
+            if edge_density >= PLATE_EDGE_DENSITY_MIN:
+                # 将边缘密度纳入评分
+                new_score = score * 0.7 + edge_density * 0.3
+                verified_candidates.append((rect, box, new_score))
+
+        # 重新按分数排序
+        verified_candidates.sort(key=lambda x: x[2], reverse=True)
+
+        # 绘制定位结果调试图
+        if self.debug:
+            debug_img = image.copy()
+            for i, (rect, box, score) in enumerate(verified_candidates):
+                color = (0, 255, 0) if i == 0 else (0, 255, 255)
+                cv2.drawContours(debug_img, [box], 0, color, 2)
+                center = (int(rect[0][0]), int(rect[0][1]))
+                cv2.putText(debug_img, f'{score:.2f}', center,
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            self.debug_images['locate_final_result'] = debug_img
+
+        return verified_candidates
+
+    def _calculate_edge_density(self, image, rect, box):
+        """
+        计算候选区域的边缘密度
+
+        真正的车牌内部应有字符，会产生丰富的边缘
+        而纯色地面边缘很少
+
+        Args:
+            image: 原始BGR图像
+            rect: 最小外接矩形
+            box: 四角点坐标
+
+        Returns:
+            边缘密度值 (0~1)
+        """
+        # 提取候选区域
+        plate_img = self.extract_plate_region(image, rect, box, padding=0)
+        if plate_img.size == 0:
+            return 0.0
+
+        # 转灰度
+        if len(plate_img.shape) == 3:
+            gray = cv2.cvtColor(plate_img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = plate_img
+
+        # Canny边缘检测
+        edges = cv2.Canny(gray, 100, 200)
+
+        # 计算边缘像素占比
+        edge_pixels = np.count_nonzero(edges)
+        total_pixels = edges.size
+
+        if total_pixels == 0:
+            return 0.0
+
+        density = edge_pixels / total_pixels
+        return density
+
+    def _merge_overlapping(self, candidates, iou_threshold=0.3):
+        """
+        合并重叠的候选区域
+
+        Args:
+            candidates: 候选区域列表
+            iou_threshold: IoU阈值，超过此值认为重叠
+
+        Returns:
+            合并后的候选区域列表
+        """
+        if len(candidates) <= 1:
+            return candidates
+
+        # 按分数排序
+        sorted_candidates = sorted(candidates, key=lambda x: x[2], reverse=True)
+        merged = []
+
+        while sorted_candidates:
+            best = sorted_candidates.pop(0)
+            merged.append(best)
+
+            remaining = []
+            for candidate in sorted_candidates:
+                if self._calculate_iou(best[1], candidate[1]) < iou_threshold:
+                    remaining.append(candidate)
+            sorted_candidates = remaining
+
+        return merged
+
+    def _calculate_iou(self, box1, box2):
+        """
+        计算两个旋转矩形的IoU
+
+        Args:
+            box1, box2: 四角点坐标数组
+
+        Returns:
+            IoU值
+        """
+        # 使用cv2.rotatedRectangleIntersection计算交集
+        rect1 = cv2.minAreaRect(box1)
+        rect2 = cv2.minAreaRect(box2)
+
+        # 计算交集面积
+        ret, intersection_points = cv2.rotatedRectangleIntersection(rect1, rect2)
+
+        if ret == cv2.INTERSECT_NONE or intersection_points is None:
+            return 0.0
+
+        intersection_area = cv2.contourArea(intersection_points)
+
+        # 计算并集面积
+        area1 = rect1[1][0] * rect1[1][1]
+        area2 = rect2[1][0] * rect2[1][1]
+        union_area = area1 + area2 - intersection_area
+
+        if union_area == 0:
+            return 0.0
+
+        return intersection_area / union_area
+
+    def extract_plate_region(self, image, rect, box, padding=5):
+        """
+        提取车牌区域图像
+
+        Args:
+            image: 原始图像
+            rect: 最小外接矩形 (center, size, angle)
+            box: 四个角点坐标
+            padding: 边缘填充像素
+
+        Returns:
+            提取的车牌区域图像
+        """
+        # 获取矩形参数
+        center, size, angle = rect
+        width, height = size
+
+        # 确保宽度大于高度
+        if width < height:
+            width, height = height, width
+            angle += 90
+
+        # 添加padding
+        width = int(width + padding * 2)
+        height = int(height + padding * 2)
+
+        # 计算旋转矩阵
+        rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+
+        # 旋转整个图像
+        img_height, img_width = image.shape[:2]
+        rotated = cv2.warpAffine(image, rotation_matrix, (img_width, img_height))
+
+        # 裁剪车牌区域
+        center_x, center_y = int(center[0]), int(center[1])
+        half_w, half_h = int(width / 2), int(height / 2)
+
+        # 确保裁剪范围不超出图像边界
+        x1 = max(0, center_x - half_w)
+        y1 = max(0, center_y - half_h)
+        x2 = min(img_width, center_x + half_w)
+        y2 = min(img_height, center_y + half_h)
+
+        plate_region = rotated[y1:y2, x1:x2]
+
+        return plate_region
+
+    def save_debug_images(self, output_dir=DEBUG_DIR, prefix=""):
+        """保存调试图片"""
+        if not self.debug:
+            return
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        for name, image in self.debug_images.items():
+            filename = f"{prefix}_{name}.jpg" if prefix else f"{name}.jpg"
+            filepath = os.path.join(output_dir, filename)
+            cv2.imwrite(filepath, image)
+            print(f"已保存: {filepath}")
+
+    def clear_debug_images(self):
+        """清空调试图片缓存"""
+        self.debug_images.clear()
+
+
+def locate_plates(image, method='combined', save_debug=True, output_dir=DEBUG_DIR, prefix=""):
+    """
+    便捷函数：定位图像中的车牌
+
+    Args:
+        image: BGR格式图像
+        method: 定位方法 ('color', 'edge', 'combined')
+        save_debug: 是否保存调试图片
+        output_dir: 调试图片输出目录
+        prefix: 文件名前缀
+
+    Returns:
+        候选车牌区域列表
+    """
+    locator = PlateLocator(debug=save_debug)
+    candidates = locator.locate(image, method)
+
+    if save_debug:
+        locator.save_debug_images(output_dir, prefix)
+
+    return candidates, locator
+
+
 if __name__ == "__main__":
     # 测试代码
     import sys
@@ -194,11 +797,30 @@ if __name__ == "__main__":
         )
 
     print(f"测试图片: {test_image_path}")
+
+    # 测试预处理
     original, processed = preprocess_image(test_image_path)
 
     if processed is not None:
         print("预处理完成！")
         print(f"原始图像尺寸: {original.shape}")
         print(f"处理后图像尺寸: {processed.shape}")
+
+        # 测试车牌定位
+        print("\n开始车牌定位...")
+        basename = os.path.splitext(os.path.basename(test_image_path))[0]
+        candidates, locator = locate_plates(original, method='combined', prefix=basename)
+
+        print(f"找到 {len(candidates)} 个候选车牌区域")
+        for i, (rect, box, score) in enumerate(candidates):
+            print(f"  候选 {i+1}: 分数={score:.3f}, 中心={rect[0]}, 尺寸={rect[1]}, 角度={rect[2]:.1f}°")
+
+            # 提取车牌区域
+            plate_img = locator.extract_plate_region(original, rect, box)
+            if plate_img.size > 0:
+                plate_path = os.path.join(DEBUG_DIR, f"{basename}_plate_{i+1}.jpg")
+                os.makedirs(DEBUG_DIR, exist_ok=True)
+                cv2.imwrite(plate_path, plate_img)
+                print(f"  已保存车牌区域: {plate_path}")
     else:
         print("预处理失败！")
