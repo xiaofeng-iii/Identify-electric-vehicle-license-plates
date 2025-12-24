@@ -101,7 +101,7 @@ class ImagePreprocessor:
             # 普通直方图均衡化
             equalized = cv2.equalizeHist(image)
 
-        self.debug_images['histogram_equalization'] = equalized.copy()
+        self.debug_images['histogram_equalization(final)'] = equalized.copy()
         return equalized
 
     def preprocess(self, image):
