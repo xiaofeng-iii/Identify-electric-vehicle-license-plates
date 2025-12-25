@@ -14,10 +14,8 @@ from config import (
     PLATE_AREA_MIN_RATIO, PLATE_AREA_MAX_RATIO,
     PLATE_RECTANGULARITY_MIN, PLATE_EDGE_DENSITY_MIN,
     WHITE_LOWER, WHITE_UPPER,
-    BLUE_LOWER, BLUE_UPPER,
-    YELLOW_LOWER, YELLOW_UPPER,
-    GREEN_LOWER, GREEN_UPPER,
-    MORPH_CLOSE_KERNEL_COLOR, MORPH_CLOSE_KERNEL_EDGE
+    MORPH_CLOSE_KERNEL_COLOR, MORPH_CLOSE_KERNEL_EDGE,
+    ADAPTIVE_WHITE_TOP_PERCENT, ADAPTIVE_WHITE_MAX_SATURATION
 )
 
 
@@ -224,7 +222,7 @@ class PlateLocator:
         mask = cv2.inRange(hsv, np.array(color_lower), np.array(color_upper))
         return mask
 
-    def _adaptive_white_segmentation(self, image, top_percent=5, min_saturation=50):
+    def _adaptive_white_segmentation(self, image, top_percent=None, min_saturation=None):
         """
         自适应白色分割：选取图像中最亮的区域
 
@@ -233,12 +231,17 @@ class PlateLocator:
 
         Args:
             image: BGR格式图像
-            top_percent: 选取最亮的百分比 (默认5%)
-            min_saturation: 最大饱和度阈值，排除彩色区域 (默认50)
+            top_percent: 选取最亮的百分比，None则使用配置值
+            min_saturation: 最大饱和度阈值，排除彩色区域，None则使用配置值
 
         Returns:
             二值化掩码图像
         """
+        if top_percent is None:
+            top_percent = ADAPTIVE_WHITE_TOP_PERCENT
+        if min_saturation is None:
+            min_saturation = ADAPTIVE_WHITE_MAX_SATURATION
+
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         h, s, v = cv2.split(hsv)
 
@@ -262,40 +265,24 @@ class PlateLocator:
         """
         颜色定位法：通过HSV颜色空间定位车牌
 
-        支持白色、蓝色、黄色、绿色车牌
-
         Args:
             image: BGR格式原始图像
             use_adaptive_white: 是否使用自适应白色检测（默认True）
 
         Returns:
-            融合后的二值化掩码
+            二值化掩码
         """
-        # 白色检测：使用自适应方法或固定阈值    
+        # 白色检测：使用自适应方法或固定阈值
         if use_adaptive_white:
             white_mask = self._adaptive_white_segmentation(image)
         else:
             white_mask = self._color_segmentation(image, WHITE_LOWER, WHITE_UPPER)
 
-        # 其他颜色使用固定阈值
-        blue_mask = self._color_segmentation(image, BLUE_LOWER, BLUE_UPPER)
-        yellow_mask = self._color_segmentation(image, YELLOW_LOWER, YELLOW_UPPER)
-        green_mask = self._color_segmentation(image, GREEN_LOWER, GREEN_UPPER)
-
-        # 融合所有颜色掩码
-        combined_mask = cv2.bitwise_or(white_mask, blue_mask)
-        combined_mask = cv2.bitwise_or(combined_mask, yellow_mask)
-        combined_mask = cv2.bitwise_or(combined_mask, green_mask)
-
         # 保存调试图片
         if self.debug:
             self.debug_images['color_white_mask'] = white_mask.copy()
-            self.debug_images['color_blue_mask'] = blue_mask.copy()
-            self.debug_images['color_yellow_mask'] = yellow_mask.copy()
-            self.debug_images['color_green_mask'] = green_mask.copy()
-            self.debug_images['color_combined_mask'] = combined_mask.copy()
 
-        return combined_mask
+        return white_mask
 
     def color_locate_v2(self, image):
         """
