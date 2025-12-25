@@ -29,13 +29,8 @@ CLAHE_CLIP_LIMIT = 2.0  # 对比度限制阈值
 CLAHE_TILE_SIZE = (8, 8)  # 分块大小
 
 # ==================== 车牌定位参数 ====================
-# 车牌长宽比范围 (用于过滤非车牌区域)
-PLATE_ASPECT_RATIO_MIN = 1.5
-PLATE_ASPECT_RATIO_MAX = 3.0
-
-# 车牌面积范围 (相对于图像面积的比例)
-PLATE_AREA_MIN_RATIO = 0.05   # 最小面积
-PLATE_AREA_MAX_RATIO = 0.20    # 降低最大面积，排除过大区域
+# # 边缘密度阈值：车牌内部应有足够的字符边缘
+# PLATE_EDGE_DENSITY_MIN = 0.06
 
 # ==================== HSV颜色阈值 ====================
 # 自适应白色检测参数
@@ -69,8 +64,13 @@ MORPH_CLOSE_KERNEL_EDGE = (15, 5)
 # 矩形度阈值 (轮廓面积/外接矩形面积)，车牌应该接近矩形
 PLATE_RECTANGULARITY_MIN = 0.5
 
-# 边缘密度阈值：车牌内部应有足够的字符边缘
-PLATE_EDGE_DENSITY_MIN = 0.06
+# 车牌长宽比范围 (用于过滤非车牌区域)
+PLATE_ASPECT_RATIO_MIN = 1.5
+PLATE_ASPECT_RATIO_MAX = 3.0
+
+# 车牌面积范围 (相对于图像面积的比例)
+PLATE_AREA_MIN_RATIO = 0.02   # 最小面积
+PLATE_AREA_MAX_RATIO = 0.20    # 降低最大面积，排除过大区域
 
 # ==================== 字符分割参数 ====================
 # 标准字符模板大小
