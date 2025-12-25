@@ -39,8 +39,8 @@ PLATE_AREA_MAX_RATIO = 0.20    # 降低最大面积，排除过大区域
 
 # ==================== HSV颜色阈值 ====================
 # 自适应白色检测参数
-ADAPTIVE_WHITE_TOP_PERCENT = 5      # 选取最亮的百分比
-ADAPTIVE_WHITE_MAX_SATURATION = 50  # 最大饱和度，排除彩色区域
+ADAPTIVE_WHITE_TOP_PERCENT = 10      # 选取最亮的百分比
+ADAPTIVE_WHITE_MAX_SATURATION = 20  # 最大饱和度，排除彩色区域
 
 # 白色车牌 (电动车常见) - 固定阈值备用
 # 注意：S值不能太低，否则会把灰色地面误识别为白色
