@@ -14,7 +14,8 @@ from config import (
     PLATE_AREA_MIN_RATIO, PLATE_AREA_MAX_RATIO,
     PLATE_RECTANGULARITY_MIN,
     WHITE_LOWER, WHITE_UPPER,
-    ADAPTIVE_WHITE_TOP_PERCENT, ADAPTIVE_WHITE_MAX_SATURATION
+    ADAPTIVE_WHITE_TOP_PERCENT, ADAPTIVE_WHITE_MAX_SATURATION,
+    ADAPTIVE_WHITE_STEP, ADAPTIVE_WHITE_MAX_PERCENT
 )
 
 
@@ -443,7 +444,9 @@ class PlateLocator:
 
     def locate(self, image, method='combined'):
         """
-        定位车牌：综合使用颜色和边缘方法
+        定位车牌：综合使用颜色和边缘方法，支持自适应调整
+
+        如果初始参数未检出车牌，会逐步增加白色检测百分比直到找到车牌
 
         Args:
             image: BGR格式原始图像
@@ -455,33 +458,43 @@ class PlateLocator:
         Returns:
             候选车牌区域列表，每个元素为 (rect, box, score)
         """
-        all_candidates = []
         img_shape = image.shape
 
         if method in ('color', 'combined'):
-            # 颜色定位 - 使用自适应白色检测
+            # 颜色定位 - 使用自适应白色检测，支持动态调整
             print("  [颜色定位]")
-            color_mask = self.color_locate(image)
-            # 跳过形态学处理，直接查找轮廓
-            # color_processed = self.morphology_process(color_mask, MORPH_CLOSE_KERNEL_COLOR)
-            color_contours = self.find_contours(color_mask)
-            print(f"    找到 {len(color_contours)} 个候选轮廓")
-            color_candidates = self.filter_candidates(color_contours, img_shape)
-            all_candidates.extend(color_candidates)
+
+            # 从配置的初始值开始尝试
+            current_percent = ADAPTIVE_WHITE_TOP_PERCENT
+            all_candidates = []
+
+            while current_percent <= ADAPTIVE_WHITE_MAX_PERCENT:
+                print(f"    尝试白色百分比: {current_percent}%")
+
+                # 使用当前百分比进行白色分割
+                color_mask = self._adaptive_white_segmentation(image, top_percent=current_percent)
+                color_contours = self.find_contours(color_mask)
+                print(f"    找到 {len(color_contours)} 个候选轮廓")
+
+                color_candidates = self.filter_candidates(color_contours, img_shape)
+
+                if len(color_candidates) > 0:
+                    # 找到候选车牌，停止搜索
+                    print(f"    成功! 在 {current_percent}% 时找到 {len(color_candidates)} 个候选车牌")
+                    all_candidates = color_candidates
+                    break
+                else:
+                    # 未找到，增加百分比继续尝试
+                    current_percent += ADAPTIVE_WHITE_STEP
+
+            if len(all_candidates) == 0:
+                print(f"    警告: 达到最大百分比 {ADAPTIVE_WHITE_MAX_PERCENT}% 仍未找到车牌")
 
             if self.debug:
                 self.debug_images['locate_color_result'] = color_mask.copy()
 
-        # if method in ('edge', 'combined'):
-        #     # 边缘定位 - 使用较小的核保持细节
-        #     edge_mask = self.edge_locate(image)
-        #     edge_processed = self.morphology_process(edge_mask, MORPH_CLOSE_KERNEL_EDGE)
-        #     edge_contours = self.find_contours(edge_processed)
-        #     edge_candidates = self.filter_candidates(edge_contours, img_shape)
-        #     all_candidates.extend(edge_candidates)
-        #
-        #     if self.debug:
-        #         self.debug_images['locate_edge_result'] = edge_processed.copy()
+        else:
+            all_candidates = []
 
         # 合并重叠候选区域
         merged_candidates = self._merge_overlapping(all_candidates)

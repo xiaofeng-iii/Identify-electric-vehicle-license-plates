@@ -34,8 +34,11 @@ CLAHE_TILE_SIZE = (8, 8)  # 分块大小
 
 # ==================== HSV颜色阈值 ====================
 # 自适应白色检测参数
-ADAPTIVE_WHITE_TOP_PERCENT = 10      # 选取最亮的百分比
-ADAPTIVE_WHITE_MAX_SATURATION = 20  # 最大饱和度，排除彩色区域
+ADAPTIVE_WHITE_TOP_PERCENT = 10      # 选取最亮的百分比（初始值）
+ADAPTIVE_WHITE_STEP = 2              # 未检出车牌时，每次增加的百分比
+ADAPTIVE_WHITE_MAX_PERCENT = 50      # 最大百分比上限，防止无限增加
+
+ADAPTIVE_WHITE_MAX_SATURATION = 20   # 最大饱和度，排除彩色区域
 
 # 白色车牌 (电动车常见) - 固定阈值备用
 # 注意：S值不能太低，否则会把灰色地面误识别为白色
@@ -69,7 +72,7 @@ PLATE_ASPECT_RATIO_MIN = 1.5
 PLATE_ASPECT_RATIO_MAX = 3.0
 
 # 车牌面积范围 (相对于图像面积的比例)
-PLATE_AREA_MIN_RATIO = 0.02   # 最小面积
+PLATE_AREA_MIN_RATIO = 0.015   # 最小面积
 PLATE_AREA_MAX_RATIO = 0.20    # 降低最大面积，排除过大区域
 
 # ==================== 字符分割参数 ====================
