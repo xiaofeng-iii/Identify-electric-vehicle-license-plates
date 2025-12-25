@@ -12,7 +12,7 @@ from config import (
     DEBUG_MODE, DEBUG_DIR,
     PLATE_ASPECT_RATIO_MIN, PLATE_ASPECT_RATIO_MAX,
     PLATE_AREA_MIN_RATIO, PLATE_AREA_MAX_RATIO,
-    PLATE_RECTANGULARITY_MIN, PLATE_ANGLE_MAX,
+    PLATE_RECTANGULARITY_MIN, PLATE_ANGLE_MAX, PLATE_SOLIDITY_MIN,
     WHITE_LOWER, WHITE_UPPER,
     ADAPTIVE_WHITE_TOP_PERCENT, ADAPTIVE_WHITE_MAX_SATURATION,
     ADAPTIVE_WHITE_STEP, ADAPTIVE_WHITE_MAX_PERCENT
@@ -342,7 +342,7 @@ class PlateLocator:
     #         self.debug_images['color_v2_closed'] = closed.copy()
     #
     #     return candidates_contours
-    def filter_candidates(self, contours, image_shape, debug_filter=False, max_angle=None):
+    def filter_candidates(self, contours, image_shape, debug_filter=False, max_angle=None, original_image=None):
         """
         筛选候选区域：根据长宽比、面积、矩形度和角度过滤轮廓
 
@@ -351,6 +351,7 @@ class PlateLocator:
             image_shape: 图像尺寸 (height, width, ...)
             debug_filter: 是否输出过滤调试信息
             max_angle: 最大允许偏离角度，None则使用配置值
+            original_image: 原始图像，用于绘制凸包可视化（可选）
 
         Returns:
             符合条件的候选矩形列表，每个元素为 (rect, box, score)
@@ -364,6 +365,12 @@ class PlateLocator:
         img_height, img_width = image_shape[:2]
         img_area = img_height * img_width
         candidates = []
+
+        # 用于凸包可视化的图像
+        if self.debug and original_image is not None:
+            hull_debug_img = original_image.copy()
+        else:
+            hull_debug_img = None
 
         for i, contour in enumerate(contours):
             # 计算轮廓面积
@@ -379,8 +386,26 @@ class PlateLocator:
                     print(f"    轮廓{i}: 面积{area:.0f}太大 (max={img_area * PLATE_AREA_MAX_RATIO:.0f})")
                 continue
 
-            # 获取最小外接矩形
-            rect = cv2.minAreaRect(contour)
+            # 计算凸包，用于处理车牌内部有黑色缺口的情况
+            hull = cv2.convexHull(contour)
+            hull_area = cv2.contourArea(hull)
+
+            # 绘制凸包可视化（蓝色：原轮廓，绿色：凸包）
+            if hull_debug_img is not None:
+                cv2.drawContours(hull_debug_img, [contour], 0, (255, 0, 0), 1)  # 蓝色：原轮廓
+                cv2.drawContours(hull_debug_img, [hull], 0, (0, 255, 0), 2)     # 绿色：凸包
+
+            # 凸包填充率 (轮廓面积/凸包面积)
+            solidity = area / hull_area if hull_area > 0 else 0
+
+            # 凸包填充率过滤：太低说明轮廓有过多凹陷，不像车牌
+            if solidity < PLATE_SOLIDITY_MIN:
+                if debug_filter:
+                    print(f"    轮廓{i}: 凸包填充率{solidity:.2f}太低 (min={PLATE_SOLIDITY_MIN})")
+                continue
+
+            # 使用凸包计算最小外接矩形（关键：即使内部有缺口也能得到完整边界）
+            rect = cv2.minAreaRect(hull)
             box = cv2.boxPoints(rect)
             box = np.int32(box)
 
@@ -412,9 +437,9 @@ class PlateLocator:
             if height == 0 or width == 0:
                 continue
 
-            # 计算矩形度 (轮廓面积 / 外接矩形面积)
+            # 计算矩形度 (凸包面积 / 外接矩形面积)
             rect_area = width * height
-            rectangularity = area / rect_area
+            rectangularity = hull_area / rect_area
 
             # 矩形度过滤：车牌应该是比较规整的矩形
             if rectangularity < PLATE_RECTANGULARITY_MIN:
@@ -444,6 +469,10 @@ class PlateLocator:
                 print(f"    轮廓{i}: 通过! 面积={area:.0f}, 长宽比={aspect_ratio:.2f}, 矩形度={rectangularity:.2f}, 角度={angle:.1f}°")
 
             candidates.append((rect, box, score))
+
+        # 保存凸包可视化图像
+        if hull_debug_img is not None:
+            self.debug_images['hull_visualization'] = hull_debug_img
 
         # 按评分排序
         candidates.sort(key=lambda x: x[2], reverse=True)
@@ -501,7 +530,7 @@ class PlateLocator:
                 color_contours = self.find_contours(color_mask)
                 print(f"    找到 {len(color_contours)} 个候选轮廓")
 
-                color_candidates = self.filter_candidates(color_contours, img_shape)
+                color_candidates = self.filter_candidates(color_contours, img_shape, original_image=image)
 
                 if len(color_candidates) > 0:
                     # 找到候选车牌，停止搜索
