@@ -69,7 +69,7 @@ PLATE_RECTANGULARITY_MIN = 0.8
 
 # 凸包填充率阈值 (轮廓面积/凸包面积)
 # 用于判断轮廓是否有过多凹陷，值越低表示允许更多缺口
-PLATE_SOLIDITY_MIN = 0.8
+PLATE_SOLIDITY_MIN = 0.5
 
 # 车牌长宽比范围 (用于过滤非车牌区域)
 PLATE_ASPECT_RATIO_MIN = 1.5
@@ -81,7 +81,7 @@ PLATE_ANGLE_MAX = 15  # 最大允许偏离角度（度）
 
 # 车牌面积范围 (相对于图像面积的比例)
 PLATE_AREA_MIN_RATIO = 0.01   # 最小面积
-PLATE_AREA_MAX_RATIO = 0.10    # 降低最大面积，排除过大区域
+PLATE_AREA_MAX_RATIO = 0.20    # 降低最大面积，排除过大区域
 
 # ==================== 字符分割参数 ====================
 # 标准字符模板大小
