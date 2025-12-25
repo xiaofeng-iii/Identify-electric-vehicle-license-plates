@@ -284,64 +284,64 @@ class PlateLocator:
 
         return white_mask
 
-    def color_locate_v2(self, image):
-        """
-        颜色定位法v2：使用边缘辅助的颜色定位
-
-        先找颜色区域，再用边缘检测精确定位边框
-
-        Args:
-            image: BGR格式原始图像
-
-        Returns:
-            候选车牌轮廓列表
-        """
-        # 获取颜色掩码
-        color_mask = self.color_locate(image)
-
-        # 使用较小的闭运算，仅连接相邻字符
-        kernel_small = cv2.getStructuringElement(cv2.MORPH_RECT, (10, 3))
-        closed = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel_small)
-
-        # 使用RETR_TREE获取轮廓层次结构
-        contours, hierarchy = cv2.findContours(
-            closed, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
-        )
-
-        if hierarchy is None:
-            return []
-
-        # 找有子轮廓的区域（车牌内有字符）
-        hierarchy = hierarchy[0]
-        candidates_contours = []
-
-        for i, (contour, h) in enumerate(zip(contours, hierarchy)):
-            # h = [next, prev, child, parent]
-            # 检查是否有子轮廓
-            child_idx = h[2]
-            if child_idx == -1:
-                # 没有子轮廓，但仍可能是车牌（被字符完全覆盖）
-                # 使用面积和长宽比筛选
-                area = cv2.contourArea(contour)
-                if area < 500:  # 太小的跳过
-                    continue
-                candidates_contours.append(contour)
-            else:
-                # 有子轮廓，计算子轮廓数量
-                child_count = 0
-                idx = child_idx
-                while idx != -1:
-                    child_count += 1
-                    idx = hierarchy[idx][0]  # next sibling
-
-                # 车牌通常有5-8个字符
-                if child_count >= 3:
-                    candidates_contours.append(contour)
-
-        if self.debug:
-            self.debug_images['color_v2_closed'] = closed.copy()
-
-        return candidates_contours
+    # def color_locate_v2(self, image):
+    #     """
+    #     颜色定位法v2：使用边缘辅助的颜色定位
+    #
+    #     先找颜色区域，再用边缘检测精确定位边框
+    #
+    #     Args:
+    #         image: BGR格式原始图像
+    #
+    #     Returns:
+    #         候选车牌轮廓列表
+    #     """
+    #     # 获取颜色掩码
+    #     color_mask = self.color_locate(image)
+    #
+    #     # 使用较小的闭运算，仅连接相邻字符
+    #     kernel_small = cv2.getStructuringElement(cv2.MORPH_RECT, (10, 3))
+    #     closed = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel_small)
+    #
+    #     # 使用RETR_TREE获取轮廓层次结构
+    #     contours, hierarchy = cv2.findContours(
+    #         closed, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+    #     )
+    #
+    #     if hierarchy is None:
+    #         return []
+    #
+    #     # 找有子轮廓的区域（车牌内有字符）
+    #     hierarchy = hierarchy[0]
+    #     candidates_contours = []
+    #
+    #     for i, (contour, h) in enumerate(zip(contours, hierarchy)):
+    #         # h = [next, prev, child, parent]
+    #         # 检查是否有子轮廓
+    #         child_idx = h[2]
+    #         if child_idx == -1:
+    #             # 没有子轮廓，但仍可能是车牌（被字符完全覆盖）
+    #             # 使用面积和长宽比筛选
+    #             area = cv2.contourArea(contour)
+    #             if area < 500:  # 太小的跳过
+    #                 continue
+    #             candidates_contours.append(contour)
+    #         else:
+    #             # 有子轮廓，计算子轮廓数量
+    #             child_count = 0
+    #             idx = child_idx
+    #             while idx != -1:
+    #                 child_count += 1
+    #                 idx = hierarchy[idx][0]  # next sibling
+    #
+    #             # 车牌通常有5-8个字符
+    #             if child_count >= 3:
+    #                 candidates_contours.append(contour)
+    #
+    #     if self.debug:
+    #         self.debug_images['color_v2_closed'] = closed.copy()
+    #
+    #     return candidates_contours
 
     def rectangle_locate(self, image):
         """
@@ -576,16 +576,16 @@ class PlateLocator:
             rect_candidates = self.filter_candidates(rect_contours, img_shape)
             all_candidates.extend(rect_candidates)
 
-            # 颜色定位v2 - 使用层次结构检测带字符的区域
-            print("  [颜色定位v2]")
-            color_contours = self.color_locate_v2(image)
+            # 颜色定位 - 使用自适应白色检测
+            print("  [颜色定位]")
+            color_mask = self.color_locate(image)
+            color_processed = self.morphology_process(color_mask, MORPH_CLOSE_KERNEL_COLOR)
+            color_contours = self.find_contours(color_processed)
             print(f"    找到 {len(color_contours)} 个候选轮廓")
             color_candidates = self.filter_candidates(color_contours, img_shape)
             all_candidates.extend(color_candidates)
 
             if self.debug:
-                color_mask = self.color_locate(image)
-                color_processed = self.morphology_process(color_mask, MORPH_CLOSE_KERNEL_COLOR)
                 self.debug_images['locate_color_result'] = color_processed.copy()
 
         if method in ('edge', 'combined'):
