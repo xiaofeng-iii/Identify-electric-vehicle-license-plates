@@ -30,17 +30,17 @@ CLAHE_TILE_SIZE = (8, 8)  # 分块大小
 
 # ==================== 车牌定位参数 ====================
 # 车牌长宽比范围 (用于过滤非车牌区域)
-PLATE_ASPECT_RATIO_MIN = 2.0
-PLATE_ASPECT_RATIO_MAX = 4.0
+PLATE_ASPECT_RATIO_MIN = 1.5
+PLATE_ASPECT_RATIO_MAX = 3.0
 
 # 车牌面积范围 (相对于图像面积的比例)
-PLATE_AREA_MIN_RATIO = 0.001   # 最小面积
-PLATE_AREA_MAX_RATIO = 0.08    # 降低最大面积，排除过大区域
+PLATE_AREA_MIN_RATIO = 0.05   # 最小面积
+PLATE_AREA_MAX_RATIO = 0.20    # 降低最大面积，排除过大区域
 
 # ==================== HSV颜色阈值 ====================
 # 白色车牌 (电动车常见)
 # 注意：S值不能太低，否则会把灰色地面误识别为白色
-WHITE_LOWER = (0, 0, 200)
+WHITE_LOWER = (0, 0, 170)
 WHITE_UPPER = (180, 50, 255)
 
 # 蓝色车牌

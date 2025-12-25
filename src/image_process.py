@@ -138,17 +138,24 @@ class ImagePreprocessor:
         保存所有调试图片
 
         Args:
-            output_dir: 输出目录
-            prefix: 文件名前缀
+            output_dir: 输出目录（会在其下创建以prefix命名的子文件夹）
+            prefix: 图片名称，用于创建子文件夹
         """
         if not self.debug:
             return
 
-        os.makedirs(output_dir, exist_ok=True)
+        # 如果有prefix，在output_dir下创建以prefix命名的子文件夹
+        if prefix:
+            actual_output_dir = os.path.join(output_dir, prefix)
+        else:
+            actual_output_dir = output_dir
 
-        for name, image in self.debug_images.items():
-            filename = f"{prefix}_{name}.jpg" if prefix else f"{name}.jpg"
-            filepath = os.path.join(output_dir, filename)
+        os.makedirs(actual_output_dir, exist_ok=True)
+
+        for idx, (name, image) in enumerate(self.debug_images.items()):
+            # 使用序号前缀确保文件按处理顺序排列
+            filename = f"{idx:02d}_{name}.jpg"
+            filepath = os.path.join(actual_output_dir, filename)
             cv2.imwrite(filepath, image)
             print(f"已保存: {filepath}")
 
@@ -217,7 +224,41 @@ class PlateLocator:
         mask = cv2.inRange(hsv, np.array(color_lower), np.array(color_upper))
         return mask
 
-    def color_locate(self, image):
+    def _adaptive_white_segmentation(self, image, top_percent=5, min_saturation=50):
+        """
+        自适应白色分割：选取图像中最亮的区域
+
+        不使用固定阈值，而是根据图像本身的亮度分布，
+        选取亮度值最高的 top_percent% 像素作为"白色"区域
+
+        Args:
+            image: BGR格式图像
+            top_percent: 选取最亮的百分比 (默认5%)
+            min_saturation: 最大饱和度阈值，排除彩色区域 (默认50)
+
+        Returns:
+            二值化掩码图像
+        """
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        h, s, v = cv2.split(hsv)
+
+        # 计算亮度阈值：取 top_percent 对应的百分位数
+        v_threshold = np.percentile(v, 100 - top_percent)
+
+        # 白色条件：亮度高 + 饱和度低（排除彩色高亮区域）
+        white_mask = (v >= v_threshold) & (s <= min_saturation)
+
+        # 转换为uint8类型的掩码
+        mask = (white_mask * 255).astype(np.uint8)
+
+        if self.debug:
+            self.debug_images['adaptive_white_v_channel'] = v.copy()
+            self.debug_images['adaptive_white_threshold'] = mask.copy()
+            print(f"    自适应白色阈值: V >= {v_threshold:.0f}, S <= {min_saturation}")
+
+        return mask
+
+    def color_locate(self, image, use_adaptive_white=True):
         """
         颜色定位法：通过HSV颜色空间定位车牌
 
@@ -225,12 +266,18 @@ class PlateLocator:
 
         Args:
             image: BGR格式原始图像
+            use_adaptive_white: 是否使用自适应白色检测（默认True）
 
         Returns:
             融合后的二值化掩码
         """
-        # 分别提取各颜色区域
-        white_mask = self._color_segmentation(image, WHITE_LOWER, WHITE_UPPER)
+        # 白色检测：使用自适应方法或固定阈值    
+        if use_adaptive_white:
+            white_mask = self._adaptive_white_segmentation(image)
+        else:
+            white_mask = self._color_segmentation(image, WHITE_LOWER, WHITE_UPPER)
+
+        # 其他颜色使用固定阈值
         blue_mask = self._color_segmentation(image, BLUE_LOWER, BLUE_UPPER)
         yellow_mask = self._color_segmentation(image, YELLOW_LOWER, YELLOW_UPPER)
         green_mask = self._color_segmentation(image, GREEN_LOWER, GREEN_UPPER)
@@ -568,18 +615,20 @@ class PlateLocator:
         # 合并重叠候选区域
         merged_candidates = self._merge_overlapping(all_candidates)
 
-        # 边缘密度验证：过滤掉内部没有足够字符特征的区域
-        verified_candidates = []
-        for rect, box, score in merged_candidates:
-            edge_density = self._calculate_edge_density(image, rect, box)
-            print(f"  候选区域: 中心={rect[0]}, 边缘密度={edge_density:.4f}")
-            if edge_density >= PLATE_EDGE_DENSITY_MIN:
-                # 将边缘密度纳入评分
-                new_score = score * 0.7 + edge_density * 0.3
-                verified_candidates.append((rect, box, new_score))
+        verified_candidates = merged_candidates
 
-        # 重新按分数排序
-        verified_candidates.sort(key=lambda x: x[2], reverse=True)
+        # # 边缘密度验证：过滤掉内部没有足够字符特征的区域
+        # verified_candidates = []
+        # for rect, box, score in merged_candidates:
+        #     edge_density = self._calculate_edge_density(image, rect, box)
+        #     print(f"  候选区域: 中心={rect[0]}, 边缘密度={edge_density:.4f}")
+        #     if edge_density >= PLATE_EDGE_DENSITY_MIN:
+        #         # 将边缘密度纳入评分
+        #         new_score = score * 0.7 + edge_density * 0.3
+        #         verified_candidates.append((rect, box, new_score))
+
+        # # 重新按分数排序
+        # verified_candidates.sort(key=lambda x: x[2], reverse=True)
 
         # 绘制定位结果调试图
         if self.debug:
@@ -743,15 +792,28 @@ class PlateLocator:
         return plate_region
 
     def save_debug_images(self, output_dir=DEBUG_DIR, prefix=""):
-        """保存调试图片"""
+        """
+        保存调试图片
+
+        Args:
+            output_dir: 输出目录（会在其下创建以prefix命名的子文件夹）
+            prefix: 图片名称，用于创建子文件夹
+        """
         if not self.debug:
             return
 
-        os.makedirs(output_dir, exist_ok=True)
+        # 如果有prefix，在output_dir下创建以prefix命名的子文件夹
+        if prefix:
+            actual_output_dir = os.path.join(output_dir, prefix)
+        else:
+            actual_output_dir = output_dir
 
-        for name, image in self.debug_images.items():
-            filename = f"{prefix}_{name}.jpg" if prefix else f"{name}.jpg"
-            filepath = os.path.join(output_dir, filename)
+        os.makedirs(actual_output_dir, exist_ok=True)
+
+        for idx, (name, image) in enumerate(self.debug_images.items()):
+            # 使用序号前缀确保文件按处理顺序排列，从10开始避免与预处理图片冲突
+            filename = f"{10 + idx:02d}_{name}.jpg"
+            filepath = os.path.join(actual_output_dir, filename)
             cv2.imwrite(filepath, image)
             print(f"已保存: {filepath}")
 
@@ -818,8 +880,9 @@ if __name__ == "__main__":
             # 提取车牌区域
             plate_img = locator.extract_plate_region(original, rect, box)
             if plate_img.size > 0:
-                plate_path = os.path.join(DEBUG_DIR, f"{basename}_plate_{i+1}.jpg")
-                os.makedirs(DEBUG_DIR, exist_ok=True)
+                plate_dir = os.path.join(DEBUG_DIR, basename)
+                os.makedirs(plate_dir, exist_ok=True)
+                plate_path = os.path.join(plate_dir, f"20_plate_{i+1}.jpg")
                 cv2.imwrite(plate_path, plate_img)
                 print(f"  已保存车牌区域: {plate_path}")
     else:
