@@ -12,9 +12,8 @@ from config import (
     DEBUG_MODE, DEBUG_DIR,
     PLATE_ASPECT_RATIO_MIN, PLATE_ASPECT_RATIO_MAX,
     PLATE_AREA_MIN_RATIO, PLATE_AREA_MAX_RATIO,
-    PLATE_RECTANGULARITY_MIN, PLATE_EDGE_DENSITY_MIN,
+    PLATE_RECTANGULARITY_MIN,
     WHITE_LOWER, WHITE_UPPER,
-    MORPH_CLOSE_KERNEL_COLOR, MORPH_CLOSE_KERNEL_EDGE,
     ADAPTIVE_WHITE_TOP_PERCENT, ADAPTIVE_WHITE_MAX_SATURATION
 )
 
@@ -342,115 +341,6 @@ class PlateLocator:
     #         self.debug_images['color_v2_closed'] = closed.copy()
     #
     #     return candidates_contours
-
-    def rectangle_locate(self, image):
-        """
-        矩形定位法：直接检测图像中的矩形边框
-
-        车牌通常有明显的矩形边框，利用此特征定位
-
-        Args:
-            image: BGR格式原始图像
-
-        Returns:
-            候选车牌轮廓列表
-        """
-        # 转灰度
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-        # 双边滤波：保边去噪
-        blurred = cv2.bilateralFilter(gray, 11, 17, 17)
-
-        # Canny边缘检测
-        edges = cv2.Canny(blurred, 30, 200)
-
-        # 膨胀连接断开的边缘
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        edges = cv2.dilate(edges, kernel, iterations=1)
-
-        # 查找轮廓
-        contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
-        candidates = []
-        for contour in contours:
-            # 轮廓近似，减少点数
-            peri = cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
-
-            # 筛选近似矩形（顶点数4-12，允许一定不规则）
-            if len(approx) >= 4 and len(approx) <= 12:
-                candidates.append(contour)
-
-        if self.debug:
-            self.debug_images['rectangle_edges'] = edges.copy()
-
-        return candidates
-
-    def edge_locate(self, image):
-        """
-        边缘定位法：通过Sobel边缘检测定位车牌
-
-        利用车牌区域垂直边缘丰富的特点进行定位
-
-        Args:
-            image: BGR格式原始图像
-
-        Returns:
-            边缘检测后的二值化图像
-        """
-        # 转换为灰度图
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-        # 高斯滤波降噪
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-
-        # Sobel垂直边缘检测 (检测x方向梯度，即垂直边缘)
-        sobel_x = cv2.Sobel(blurred, cv2.CV_64F, 1, 0, ksize=3)
-        sobel_x = np.absolute(sobel_x)
-        sobel_x = np.uint8(255 * sobel_x / np.max(sobel_x)) if np.max(sobel_x) > 0 else np.uint8(sobel_x)
-
-        # Otsu自动阈值二值化
-        _, binary = cv2.threshold(sobel_x, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-        if self.debug:
-            self.debug_images['edge_sobel'] = sobel_x.copy()
-            self.debug_images['edge_binary'] = binary.copy()
-
-        return binary
-
-    def morphology_process(self, binary_image, kernel_size=None):
-        """
-        形态学处理：通过闭运算连接断开的区域
-
-        Args:
-            binary_image: 二值化图像
-            kernel_size: 闭运算核大小，None则使用默认值
-
-        Returns:
-            形态学处理后的图像
-        """
-        if kernel_size is None:
-            kernel_size = MORPH_CLOSE_KERNEL_COLOR
-
-        # 创建形态学核
-        kernel = cv2.getStructuringElement(
-            cv2.MORPH_RECT,
-            kernel_size
-        )
-
-        # 闭运算：先膨胀后腐蚀，用于连接断开的边缘
-        closed = cv2.morphologyEx(binary_image, cv2.MORPH_CLOSE, kernel)
-
-        # 开运算：先腐蚀后膨胀，去除小噪点
-        kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-        opened = cv2.morphologyEx(closed, cv2.MORPH_OPEN, kernel_open)
-
-        if self.debug:
-            self.debug_images['morphology_closed'] = closed.copy()
-            self.debug_images['morphology_opened'] = opened.copy()
-
-        return opened
-
     def filter_candidates(self, contours, image_shape, debug_filter=False):
         """
         筛选候选区域：根据长宽比、面积和矩形度过滤轮廓
@@ -569,35 +459,29 @@ class PlateLocator:
         img_shape = image.shape
 
         if method in ('color', 'combined'):
-            # 矩形定位法 - 直接检测矩形边框
-            print("  [矩形定位]")
-            rect_contours = self.rectangle_locate(image)
-            print(f"    找到 {len(rect_contours)} 个候选轮廓")
-            rect_candidates = self.filter_candidates(rect_contours, img_shape)
-            all_candidates.extend(rect_candidates)
-
             # 颜色定位 - 使用自适应白色检测
             print("  [颜色定位]")
             color_mask = self.color_locate(image)
-            color_processed = self.morphology_process(color_mask, MORPH_CLOSE_KERNEL_COLOR)
-            color_contours = self.find_contours(color_processed)
+            # 跳过形态学处理，直接查找轮廓
+            # color_processed = self.morphology_process(color_mask, MORPH_CLOSE_KERNEL_COLOR)
+            color_contours = self.find_contours(color_mask)
             print(f"    找到 {len(color_contours)} 个候选轮廓")
             color_candidates = self.filter_candidates(color_contours, img_shape)
             all_candidates.extend(color_candidates)
 
             if self.debug:
-                self.debug_images['locate_color_result'] = color_processed.copy()
+                self.debug_images['locate_color_result'] = color_mask.copy()
 
-        if method in ('edge', 'combined'):
-            # 边缘定位 - 使用较小的核保持细节
-            edge_mask = self.edge_locate(image)
-            edge_processed = self.morphology_process(edge_mask, MORPH_CLOSE_KERNEL_EDGE)
-            edge_contours = self.find_contours(edge_processed)
-            edge_candidates = self.filter_candidates(edge_contours, img_shape)
-            all_candidates.extend(edge_candidates)
-
-            if self.debug:
-                self.debug_images['locate_edge_result'] = edge_processed.copy()
+        # if method in ('edge', 'combined'):
+        #     # 边缘定位 - 使用较小的核保持细节
+        #     edge_mask = self.edge_locate(image)
+        #     edge_processed = self.morphology_process(edge_mask, MORPH_CLOSE_KERNEL_EDGE)
+        #     edge_contours = self.find_contours(edge_processed)
+        #     edge_candidates = self.filter_candidates(edge_contours, img_shape)
+        #     all_candidates.extend(edge_candidates)
+        #
+        #     if self.debug:
+        #         self.debug_images['locate_edge_result'] = edge_processed.copy()
 
         # 合并重叠候选区域
         merged_candidates = self._merge_overlapping(all_candidates)
