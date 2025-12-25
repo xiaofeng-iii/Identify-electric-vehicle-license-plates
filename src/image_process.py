@@ -12,7 +12,7 @@ from config import (
     DEBUG_MODE, DEBUG_DIR,
     PLATE_ASPECT_RATIO_MIN, PLATE_ASPECT_RATIO_MAX,
     PLATE_AREA_MIN_RATIO, PLATE_AREA_MAX_RATIO,
-    PLATE_RECTANGULARITY_MIN,
+    PLATE_RECTANGULARITY_MIN, PLATE_ANGLE_MAX,
     WHITE_LOWER, WHITE_UPPER,
     ADAPTIVE_WHITE_TOP_PERCENT, ADAPTIVE_WHITE_MAX_SATURATION,
     ADAPTIVE_WHITE_STEP, ADAPTIVE_WHITE_MAX_PERCENT
@@ -342,14 +342,15 @@ class PlateLocator:
     #         self.debug_images['color_v2_closed'] = closed.copy()
     #
     #     return candidates_contours
-    def filter_candidates(self, contours, image_shape, debug_filter=False):
+    def filter_candidates(self, contours, image_shape, debug_filter=False, max_angle=None):
         """
-        筛选候选区域：根据长宽比、面积和矩形度过滤轮廓
+        筛选候选区域：根据长宽比、面积、矩形度和角度过滤轮廓
 
         Args:
             contours: 轮廓列表
             image_shape: 图像尺寸 (height, width, ...)
             debug_filter: 是否输出过滤调试信息
+            max_angle: 最大允许偏离角度，None则使用配置值
 
         Returns:
             符合条件的候选矩形列表，每个元素为 (rect, box, score)
@@ -357,6 +358,9 @@ class PlateLocator:
             - box: 四个角点坐标
             - score: 评分 (越高越可能是车牌)
         """
+        if max_angle is None:
+            max_angle = PLATE_ANGLE_MAX
+
         img_height, img_width = image_shape[:2]
         img_area = img_height * img_width
         candidates = []
@@ -380,10 +384,29 @@ class PlateLocator:
             box = cv2.boxPoints(rect)
             box = np.int32(box)
 
-            # 获取矩形宽高 (确保宽>高)
+            # 获取矩形宽高和角度
             width, height = rect[1]
+            angle = rect[2]
+
+            # 标准化角度：将角度转换为相对于水平方向的偏离角度
+            # cv2.minAreaRect返回的角度范围是[-90, 0)
+            # 当宽<高时，角度需要调整
             if width < height:
                 width, height = height, width
+                angle = angle + 90
+
+            # 将角度标准化到 [-45, 45] 范围，表示偏离水平的角度
+            if angle > 45:
+                angle = angle - 90
+            elif angle < -45:
+                angle = angle + 90
+
+            # 角度偏离过滤
+            angle_deviation = abs(angle)
+            if angle_deviation > max_angle:
+                if debug_filter:
+                    print(f"    轮廓{i}: 角度偏离{angle_deviation:.1f}°超过阈值 (max={max_angle}°)")
+                continue
 
             # 避免除零
             if height == 0 or width == 0:
@@ -412,11 +435,13 @@ class PlateLocator:
             ratio_score = 1.0 - abs(aspect_ratio - 3.0) / 2.0
             # 矩形度越高越好
             rect_score = rectangularity
+            # 角度越正越好（偏离越小越好）
+            angle_score = 1.0 - angle_deviation / 45.0
             # 综合评分
-            score = ratio_score * 0.6 + rect_score * 0.4
+            score = ratio_score * 0.5 + rect_score * 0.3 + angle_score * 0.2
 
             if debug_filter:
-                print(f"    轮廓{i}: 通过! 面积={area:.0f}, 长宽比={aspect_ratio:.2f}, 矩形度={rectangularity:.2f}")
+                print(f"    轮廓{i}: 通过! 面积={area:.0f}, 长宽比={aspect_ratio:.2f}, 矩形度={rectangularity:.2f}, 角度={angle:.1f}°")
 
             candidates.append((rect, box, score))
 
