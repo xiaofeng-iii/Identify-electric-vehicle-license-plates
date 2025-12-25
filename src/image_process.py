@@ -390,10 +390,17 @@ class PlateLocator:
             hull = cv2.convexHull(contour)
             hull_area = cv2.contourArea(hull)
 
-            # 绘制凸包可视化（蓝色：原轮廓，绿色：凸包）
+            # 绘制凸包可视化（蓝色：原轮廓，绿色：凸包，标注编号）
             if hull_debug_img is not None:
                 cv2.drawContours(hull_debug_img, [contour], 0, (255, 0, 0), 1)  # 蓝色：原轮廓
                 cv2.drawContours(hull_debug_img, [hull], 0, (0, 255, 0), 2)     # 绿色：凸包
+                # 在轮廓中心标注编号
+                M = cv2.moments(contour)
+                if M["m00"] != 0:
+                    cx = int(M["m10"] / M["m00"])
+                    cy = int(M["m01"] / M["m00"])
+                    cv2.putText(hull_debug_img, str(i), (cx, cy),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)  # 红色编号
 
             # 凸包填充率 (轮廓面积/凸包面积)
             solidity = area / hull_area if hull_area > 0 else 0
@@ -413,18 +420,22 @@ class PlateLocator:
             width, height = rect[1]
             angle = rect[2]
 
-            # 标准化角度：将角度转换为相对于水平方向的偏离角度
-            # cv2.minAreaRect返回的角度范围是[-90, 0)
-            # 当宽<高时，角度需要调整
+            # 标准化：确保 width > height，并计算相对于水平的偏离角度
+            # cv2.minAreaRect 返回的角度是 width 边与水平轴的夹角，范围 [-90, 0)
             if width < height:
                 width, height = height, width
+                # 交换后，原来的 height 边变成了 width 边
+                # 新的角度 = 原角度 + 90
                 angle = angle + 90
 
-            # 将角度标准化到 [-45, 45] 范围，表示偏离水平的角度
-            if angle > 45:
-                angle = angle - 90
-            elif angle < -45:
-                angle = angle + 90
+            # 此时 angle 范围可能是 [-90, 90)
+            # 我们需要将其标准化到 [-45, 45] 表示偏离水平的角度
+            # 如果 angle > 45，说明矩形更接近垂直，减去90得到负角度
+            # 如果 angle < -45，说明矩形更接近垂直，加上90得到正角度
+            while angle > 45:
+                angle -= 90
+            while angle < -45:
+                angle += 90
 
             # 角度偏离过滤
             angle_deviation = abs(angle)
