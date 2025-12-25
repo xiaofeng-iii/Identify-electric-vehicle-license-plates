@@ -73,7 +73,7 @@ PLATE_ASPECT_RATIO_MAX = 3.0
 
 # 车牌角度偏离阈值 (度数)
 # 角度为0表示完全水平，该值表示允许的最大偏离角度
-PLATE_ANGLE_MAX = 15  # 最大允许偏离角度（度）
+PLATE_ANGLE_MAX = 5  # 最大允许偏离角度（度）
 
 # 车牌面积范围 (相对于图像面积的比例)
 PLATE_AREA_MIN_RATIO = 0.015   # 最小面积
