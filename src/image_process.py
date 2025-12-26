@@ -705,7 +705,7 @@ class PlateLocator:
 
     def extract_plate_region(self, image, rect, box, padding=5):
         """
-        提取车牌区域图像
+        提取车牌区域图像，使用最小旋转角度矫正到水平
 
         Args:
             image: 原始图像
@@ -714,25 +714,31 @@ class PlateLocator:
             padding: 边缘填充像素
 
         Returns:
-            提取的车牌区域图像
+            提取的车牌区域图像（已矫正为水平）
         """
-        # 获取矩形参数
-        center, size, angle = rect
-        width, height = size
+        center = rect[0]
 
-        # 确保宽度大于高度
-        if width < height:
-            width, height = height, width
-            angle += 90
+        # 从 box 计算长边角度（与 filter_candidates 中的逻辑一致）
+        edge1 = np.linalg.norm(box[0] - box[1])
+        edge2 = np.linalg.norm(box[1] - box[2])
 
-        # 添加padding
+        if edge1 >= edge2:
+            long_edge_vec = box[1] - box[0]
+            width, height = edge1, edge2
+        else:
+            long_edge_vec = box[2] - box[1]
+            width, height = edge2, edge1
+
+        # 计算长边与水平方向的夹角
+        angle = np.degrees(np.arctan2(long_edge_vec[1], long_edge_vec[0]))
+
+        # 添加 padding
         width = int(width + padding * 2)
         height = int(height + padding * 2)
 
-        # 计算旋转矩阵
+        # 旋转图像使车牌水平（旋转 -angle 度）
         rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
 
-        # 旋转整个图像
         img_height, img_width = image.shape[:2]
         rotated = cv2.warpAffine(image, rotation_matrix, (img_width, img_height))
 
@@ -740,7 +746,6 @@ class PlateLocator:
         center_x, center_y = int(center[0]), int(center[1])
         half_w, half_h = int(width / 2), int(height / 2)
 
-        # 确保裁剪范围不超出图像边界
         x1 = max(0, center_x - half_w)
         y1 = max(0, center_y - half_h)
         x2 = min(img_width, center_x + half_w)
