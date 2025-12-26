@@ -84,5 +84,22 @@ PLATE_AREA_MAX_RATIO = 0.20    # 降低最大面积，排除过大区域
 TEMPLATE_WIDTH = 20
 TEMPLATE_HEIGHT = 40
 
+# 二值化参数
+CHAR_BINARY_BLOCK_SIZE = 45       # 自适应二值化块大小（必须为奇数）
+CHAR_BINARY_C = 5                 # 自适应二值化常数（从均值中减去的值）
+CHAR_BINARY_INVERT = True         # 是否反转（True=白底黑字变黑底白字）
+
+# 形态学参数
+CHAR_MORPH_CLOSE_KERNEL = (3, 3)  # 闭运算核大小（连接断裂笔画）
+CHAR_MORPH_OPEN_KERNEL = (5, 5)   # 开运算核大小（去除噪点）
+
+# 字符筛选参数
+CHAR_HEIGHT_RATIO_MIN = 0.2       # 字符高度占车牌高度的最小比例
+CHAR_HEIGHT_RATIO_MAX = 0.95      # 字符高度占车牌高度的最大比例
+CHAR_ASPECT_RATIO_MIN = 0.1       # 字符宽高比最小值
+CHAR_ASPECT_RATIO_MAX = 1.5       # 字符宽高比最大值
+CHAR_MIN_AREA = 30                # 字符最小面积（像素）
+CHAR_EDGE_MARGIN = 2              # 字符距边缘最小距离（像素）
+
 # ==================== 调试开关 ====================
 DEBUG_MODE = True  # 是否保存中间处理图片

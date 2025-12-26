@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 车牌识别流程测试脚本
-测试完整流程：预处理 -> 车牌定位
+测试完整流程：预处理 -> 车牌定位 -> 字符分割
 
 用法: python test_pipeline.py [图片路径] [--show]
       --show: 显示处理结果窗口（默认关闭）
@@ -17,6 +17,7 @@ import argparse
 sys.path.insert(0, os.path.dirname(__file__))
 
 from image_process import ImagePreprocessor, preprocess_image, PlateLocator, locate_plates
+from char_segment import segment_characters
 from config import DEBUG_DIR, RAW_IMAGES_DIR
 
 
@@ -109,6 +110,28 @@ def test_single_image(image_path, show_result=False):
             plate_path = os.path.join(output_dir, f"20_plate_{i+1}.jpg")
             cv2.imwrite(plate_path, plate_img)
             print(f"    已保存: {plate_path}")
+
+    # ==================== 阶段3: 字符分割 ====================
+    print("\n[阶段3] 字符分割")
+    print("-" * 40)
+
+    all_characters = []
+    for i, plate_img in enumerate(plate_regions):
+        print(f"  处理车牌 {i+1}:")
+        characters, _ = segment_characters(
+            plate_img,
+            save_debug=True,
+            output_dir=DEBUG_DIR,
+            prefix=basename
+        )
+        print(f"    分割出 {len(characters)} 个字符")
+
+        # 保存单个字符
+        for j, (char_img, _) in enumerate(characters):
+            char_path = os.path.join(output_dir, f"30_char_{i+1}_{j+1}.jpg")
+            cv2.imwrite(char_path, char_img)
+
+        all_characters.append(characters)
 
     # ==================== 结果展示 ====================
     if show_result and len(plate_regions) > 0:
