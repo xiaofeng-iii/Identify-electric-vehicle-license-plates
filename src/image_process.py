@@ -342,7 +342,8 @@ class PlateLocator:
     #         self.debug_images['color_v2_closed'] = closed.copy()
     #
     #     return candidates_contours
-    def filter_candidates(self, contours, image_shape, debug_filter=False, max_angle=None):
+    def filter_candidates(self, contours, image_shape, debug_filter=False, max_angle=None,
+                          debug_image=None):
         """
         筛选候选区域：根据长宽比、面积、矩形度和角度过滤轮廓
 
@@ -351,6 +352,7 @@ class PlateLocator:
             image_shape: 图像尺寸 (height, width, ...)
             debug_filter: 是否输出过滤调试信息
             max_angle: 最大允许偏离角度，None则使用配置值
+            debug_image: 用于可视化的原始图像，传入则会生成筛选过程可视化
 
         Returns:
             符合条件的候选矩形列表，每个元素为 (rect, box, score)
@@ -364,6 +366,9 @@ class PlateLocator:
         img_height, img_width = image_shape[:2]
         img_area = img_height * img_width
         candidates = []
+
+        # 用于调试可视化：记录通过面积筛选的候选块及其筛选结果
+        filter_debug_info = []  # [(contour, box, reason, details)]
 
         for i, contour in enumerate(contours):
             # 计算轮廓面积
@@ -384,28 +389,37 @@ class PlateLocator:
             box = cv2.boxPoints(rect)
             box = np.int32(box)
 
-            # 获取矩形宽高和角度
-            width, height = rect[1]
-            angle = rect[2]
+            # 直接从 box 的四个顶点计算长边角度
+            # box 顺序: 逆时针，从最低点开始
+            # 计算相邻两条边的长度和角度
+            edge1 = np.linalg.norm(box[0] - box[1])
+            edge2 = np.linalg.norm(box[1] - box[2])
 
-            # 标准化角度：将角度转换为相对于水平方向的偏离角度
-            # cv2.minAreaRect返回的角度范围是[-90, 0)
-            # 当宽<高时，角度需要调整
-            if width < height:
-                width, height = height, width
-                angle = angle + 90
+            # 确定长边和短边
+            if edge1 >= edge2:
+                long_edge_vec = box[1] - box[0]
+                width, height = edge1, edge2
+            else:
+                long_edge_vec = box[2] - box[1]
+                width, height = edge2, edge1
 
-            # 将角度标准化到 [-45, 45] 范围，表示偏离水平的角度
-            if angle > 45:
-                angle = angle - 90
-            elif angle < -45:
-                angle = angle + 90
+            # 计算长边与水平方向的夹角 (范围 -90° 到 90°)
+            angle = np.degrees(np.arctan2(long_edge_vec[1], long_edge_vec[0]))
+
+            # 标准化到 [-45, 45]，因为车牌长边接近水平时角度应接近0
+            # 如果角度超出此范围，说明我们选的是"竖着"的方向，需要修正
+            while angle > 45:
+                angle -= 90
+            while angle <= -45:
+                angle += 90
 
             # 角度偏离过滤
             angle_deviation = abs(angle)
             if angle_deviation > max_angle:
                 if debug_filter:
                     print(f"    轮廓{i}: 角度偏离{angle_deviation:.1f}°超过阈值 (max={max_angle}°)")
+                if debug_image is not None:
+                    filter_debug_info.append((contour, box, 'angle', f'角度:{angle:.1f}°'))
                 continue
 
             # 避免除零
@@ -420,6 +434,8 @@ class PlateLocator:
             if rectangularity < PLATE_RECTANGULARITY_MIN:
                 if debug_filter:
                     print(f"    轮廓{i}: 矩形度{rectangularity:.2f}太低 (min={PLATE_RECTANGULARITY_MIN})")
+                if debug_image is not None:
+                    filter_debug_info.append((contour, box, 'rect', f'矩形度:{rectangularity:.2f}'))
                 continue
 
             # 计算长宽比
@@ -429,6 +445,8 @@ class PlateLocator:
             if aspect_ratio < PLATE_ASPECT_RATIO_MIN or aspect_ratio > PLATE_ASPECT_RATIO_MAX:
                 if debug_filter:
                     print(f"    轮廓{i}: 长宽比{aspect_ratio:.2f}不符合 ({PLATE_ASPECT_RATIO_MIN}~{PLATE_ASPECT_RATIO_MAX})")
+                if debug_image is not None:
+                    filter_debug_info.append((contour, box, 'ratio', f'比例:{aspect_ratio:.2f}'))
                 continue
 
             # 计算评分：长宽比越接近3越好（中国车牌标准比例约为3:1）
@@ -443,7 +461,36 @@ class PlateLocator:
             if debug_filter:
                 print(f"    轮廓{i}: 通过! 面积={area:.0f}, 长宽比={aspect_ratio:.2f}, 矩形度={rectangularity:.2f}, 角度={angle:.1f}°")
 
+            if debug_image is not None:
+                filter_debug_info.append((contour, box, 'PASS', f'比例:{aspect_ratio:.2f} 角度:{angle:.1f}°'))
+
             candidates.append((rect, box, score))
+
+        # 生成筛选过程可视化图片
+        if debug_image is not None and len(filter_debug_info) > 0:
+            vis_img = debug_image.copy()
+            # 颜色映射：不同筛选原因用不同颜色
+            color_map = {
+                'angle': (0, 0, 255),    # 红色：角度不符
+                'rect': (0, 165, 255),   # 橙色：矩形度不符
+                'ratio': (0, 255, 255),  # 黄色：长宽比不符
+                'PASS': (0, 255, 0)      # 绿色：通过
+            }
+            for idx, (contour, box, reason, details) in enumerate(filter_debug_info):
+                color = color_map.get(reason, (255, 255, 255))
+                # 绘制外接矩形
+                cv2.drawContours(vis_img, [box], 0, color, 2)
+                # 绘制轮廓
+                cv2.drawContours(vis_img, [contour], 0, color, 1)
+                # 标注信息
+                center_x = int(np.mean(box[:, 0]))
+                center_y = int(np.mean(box[:, 1]))
+                label = f"{idx}:{reason}"
+                cv2.putText(vis_img, label, (center_x - 30, center_y - 10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                cv2.putText(vis_img, details, (center_x - 40, center_y + 10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+            self.debug_images['filter_candidates_debug'] = vis_img
 
         # 按评分排序
         candidates.sort(key=lambda x: x[2], reverse=True)
@@ -501,7 +548,10 @@ class PlateLocator:
                 color_contours = self.find_contours(color_mask)
                 print(f"    找到 {len(color_contours)} 个候选轮廓")
 
-                color_candidates = self.filter_candidates(color_contours, img_shape)
+                color_candidates = self.filter_candidates(
+                    color_contours, img_shape, debug_filter=False,
+                    debug_image=image if self.debug else None
+                )
 
                 if len(color_candidates) > 0:
                     # 找到候选车牌，停止搜索
