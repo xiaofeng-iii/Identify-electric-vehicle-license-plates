@@ -85,13 +85,13 @@ TEMPLATE_WIDTH = 20
 TEMPLATE_HEIGHT = 40
 
 # 二值化参数
-CHAR_BINARY_BLOCK_SIZE = 45       # 自适应二值化块大小（必须为奇数）
-CHAR_BINARY_C = 5                 # 自适应二值化常数（从均值中减去的值）
+CHAR_BINARY_BLOCK_SIZE = 55       # 自适应二值化块大小（必须为奇数）
+CHAR_BINARY_C = 7                 # 自适应二值化常数（从均值中减去的值）
 CHAR_BINARY_INVERT = True         # 是否反转（True=白底黑字变黑底白字）
 
 # 形态学参数
-CHAR_MORPH_CLOSE_KERNEL = (3, 3)  # 闭运算核大小（连接断裂笔画）
-CHAR_MORPH_OPEN_KERNEL = (5, 5)   # 开运算核大小（去除噪点）
+CHAR_MORPH_CLOSE_KERNEL = (5, 5)  # 闭运算核大小（连接断裂笔画）
+CHAR_MORPH_OPEN_KERNEL = (7, 7)   # 开运算核大小（去除噪点）
 
 # 字符筛选参数
 CHAR_HEIGHT_RATIO_MIN = 0.2       # 字符高度占车牌高度的最小比例
@@ -100,6 +100,19 @@ CHAR_ASPECT_RATIO_MIN = 0.1       # 字符宽高比最小值
 CHAR_ASPECT_RATIO_MAX = 1.5       # 字符宽高比最大值
 CHAR_MIN_AREA = 30                # 字符最小面积（像素）
 CHAR_EDGE_MARGIN = 2              # 字符距边缘最小距离（像素）
+
+# 字符归一化缩放比例（控制字符在20x40画布中的大小）
+# 0.8 = 字符缩放到16x32左右，边距较大
+# 0.9 = 字符缩放到18x36左右，边距较小（推荐）
+# 1.0 = 字符填满画布，无边距（不推荐，可能截断字符边缘）
+CHAR_NORMALIZE_SCALE = 1
+
+# ==================== 字符识别参数 ====================
+# 模板匹配方法: 'ssd'(像素差平方和), 'ncc'(归一化互相关), 'xor'(异或)
+# 推荐使用ssd：基于Jaccard相似度，对字符形状差异敏感，适合无边框模板
+OCR_MATCH_METHOD = 'ssd'
+# 最小置信度阈值，低于此值认为无法识别
+OCR_MIN_CONFIDENCE = 0.62
 
 # ==================== 调试开关 ====================
 DEBUG_MODE = True  # 是否保存中间处理图片

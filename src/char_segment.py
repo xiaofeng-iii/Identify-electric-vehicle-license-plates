@@ -13,7 +13,8 @@ from config import (
     CHAR_MORPH_CLOSE_KERNEL, CHAR_MORPH_OPEN_KERNEL,
     CHAR_HEIGHT_RATIO_MIN, CHAR_HEIGHT_RATIO_MAX,
     CHAR_ASPECT_RATIO_MIN, CHAR_ASPECT_RATIO_MAX,
-    CHAR_MIN_AREA, CHAR_EDGE_MARGIN
+    CHAR_MIN_AREA, CHAR_EDGE_MARGIN,
+    CHAR_NORMALIZE_SCALE
 )
 
 
@@ -182,7 +183,7 @@ class CharacterSegmenter:
         h, w = char_image.shape[:2]
 
         # 保持宽高比缩放
-        scale = min(target_width / w, target_height / h) * 0.8  # 留边距
+        scale = min(target_width / w, target_height / h) * CHAR_NORMALIZE_SCALE
 
         new_w = int(w * scale)
         new_h = int(h * scale)

@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from image_process import ImagePreprocessor, preprocess_image, PlateLocator, locate_plates
 from char_segment import segment_characters
+from match_ocr import recognize_characters
 from config import DEBUG_DIR, RAW_IMAGES_DIR
 
 
@@ -132,6 +133,33 @@ def test_single_image(image_path, show_result=False):
             cv2.imwrite(char_path, char_img)
 
         all_characters.append(characters)
+
+    # ==================== 阶段4: 字符识别 ====================
+    print("\n[阶段4] 字符识别")
+    print("-" * 40)
+
+    plate_strings = []
+    for i, characters in enumerate(all_characters):
+        if len(characters) == 0:
+            print(f"  车牌 {i+1}: 无字符可识别")
+            plate_strings.append("")
+            continue
+
+        print(f"  车牌 {i+1}:")
+        plate_string, results, _ = recognize_characters(
+            characters,
+            save_debug=True,
+            output_dir=DEBUG_DIR,
+            prefix=basename
+        )
+
+        # 输出每个字符的识别结果
+        for j, (char, confidence, _) in enumerate(results):
+            status = char if char else "?"
+            print(f"    字符 {j+1}: {status} (置信度: {confidence:.3f})")
+
+        print(f"    识别结果: {plate_string}")
+        plate_strings.append(plate_string)
 
     # ==================== 结果展示 ====================
     if show_result and len(plate_regions) > 0:
