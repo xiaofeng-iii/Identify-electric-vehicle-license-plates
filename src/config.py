@@ -17,6 +17,7 @@ RAW_IMAGES_DIR = os.path.join(RESOURCES_DIR, 'raw_images')
 # 输出目录
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, 'output')
 DEBUG_DIR = os.path.join(OUTPUT_DIR, 'debug_steps')
+RESULT_DIR = os.path.join(OUTPUT_DIR, 'results')  # 最终识别结果目录
 
 # ==================== 预处理参数 ====================
 # 高斯滤波核大小 (必须为奇数)
@@ -115,4 +116,4 @@ OCR_MATCH_METHOD = 'ssd'
 OCR_MIN_CONFIDENCE = 0.62
 
 # ==================== 调试开关 ====================
-DEBUG_MODE = True  # 是否保存中间处理图片
+DEBUG_MODE = False  # 默认关闭，由 main.py 根据 --debug 参数动态控制

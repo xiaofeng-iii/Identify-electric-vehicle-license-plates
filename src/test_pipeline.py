@@ -19,7 +19,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from image_process import ImagePreprocessor, preprocess_image, PlateLocator, locate_plates
 from char_segment import segment_characters
 from match_ocr import recognize_characters
-from config import DEBUG_DIR, RAW_IMAGES_DIR
+from visualize_result import create_result_summary
+from config import DEBUG_DIR, RAW_IMAGES_DIR, RESULT_DIR
 
 
 def display_result(original, plate_regions, window_name="车牌识别结果"):
@@ -139,10 +140,12 @@ def test_single_image(image_path, show_result=False):
     print("-" * 40)
 
     plate_strings = []
+    all_recognition_details = []
     for i, characters in enumerate(all_characters):
         if len(characters) == 0:
             print(f"  车牌 {i+1}: 无字符可识别")
             plate_strings.append("")
+            all_recognition_details.append([])
             continue
 
         print(f"  车牌 {i+1}:")
@@ -160,22 +163,40 @@ def test_single_image(image_path, show_result=False):
 
         print(f"    识别结果: {plate_string}")
         plate_strings.append(plate_string)
+        all_recognition_details.append(results)
+
+    # ==================== 阶段5: 生成最终结果 ====================
+    print("\n[阶段5] 生成最终结果")
+    print("-" * 40)
+
+    # 只生成一个结果图片（包含标注的原图和识别详情）
+    result_path = os.path.join(RESULT_DIR, f"{basename}_result.jpg")
+    result_img = create_result_summary(
+        original, candidates, plate_strings,
+        all_recognition_details, result_path
+    )
+
+    # 打印最终识别结果
+    print("\n最终识别结果:")
+    for i, plate_string in enumerate(plate_strings):
+        filtered = plate_string.replace('?', '')
+        if filtered:
+            print(f"  车牌 {i+1}: {filtered}")
+        else:
+            print(f"  车牌 {i+1}: 无有效字符")
 
     # ==================== 结果展示 ====================
     if show_result and len(plate_regions) > 0:
-        # 在原图上绘制定位结果
-        result_img = original.copy()
-        for i, (rect, box, score) in enumerate(candidates):
-            color = (0, 255, 0) if i == 0 else (0, 255, 255)
-            cv2.drawContours(result_img, [box], 0, color, 2)
-            # 添加序号标签
-            center = (int(rect[0][0]), int(rect[0][1]) - 10)
-            cv2.putText(result_img, f"#{i+1}", center,
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+        # 显示最终结果
+        cv2.imshow("识别结果", result_img)
 
-        display_result(result_img, plate_regions)
+        print("\n按任意键关闭窗口...")
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
-    print(f"\n处理完成! 调试图片已保存到: {output_dir}")
+    print(f"\n处理完成! ")
+    print(f"  调试图片: {output_dir}")
+    print(f"  最终结果: {result_path}")
     return True, len(candidates)
 
 
