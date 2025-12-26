@@ -408,10 +408,10 @@ class PlateLocator:
 
             # 标准化到 [-45, 45]，因为车牌长边接近水平时角度应接近0
             # 如果角度超出此范围，说明我们选的是"竖着"的方向，需要修正
-            while angle > 45:
-                angle -= 90
-            while angle <= -45:
-                angle += 90
+            # while angle > 45:
+            #     angle -= 90
+            # while angle <= -45:
+            #     angle += 90
 
             # 角度偏离过滤
             angle_deviation = abs(angle)
