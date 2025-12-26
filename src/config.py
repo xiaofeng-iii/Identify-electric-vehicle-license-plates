@@ -38,7 +38,7 @@ ADAPTIVE_WHITE_TOP_PERCENT = 10      # 选取最亮的百分比（初始值）
 ADAPTIVE_WHITE_STEP = 2              # 未检出车牌时，每次增加的百分比
 ADAPTIVE_WHITE_MAX_PERCENT = 50      # 最大百分比上限，防止无限增加
 
-ADAPTIVE_WHITE_MAX_SATURATION = 10   # 最大饱和度，排除彩色区域
+ADAPTIVE_WHITE_MAX_SATURATION = 20   # 最大饱和度，排除彩色区域
 
 # 白色车牌 (电动车常见) - 固定阈值备用
 # 注意：S值不能太低，否则会把灰色地面误识别为白色
@@ -73,7 +73,7 @@ PLATE_ASPECT_RATIO_MAX = 3.0
 
 # 车牌角度偏离阈值 (度数)
 # 角度为0表示完全水平，该值表示允许的最大偏离角度
-PLATE_ANGLE_MAX = 5  # 最大允许偏离角度（度）
+PLATE_ANGLE_MAX = 15  # 最大允许偏离角度（度）
 
 # 车牌面积范围 (相对于图像面积的比例)
 PLATE_AREA_MIN_RATIO = 0.015   # 最小面积
