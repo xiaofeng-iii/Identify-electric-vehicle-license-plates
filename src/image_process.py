@@ -14,8 +14,9 @@ from config import (
     PLATE_AREA_MIN_RATIO, PLATE_AREA_MAX_RATIO,
     PLATE_RECTANGULARITY_MIN, PLATE_ANGLE_MAX,
     WHITE_LOWER, WHITE_UPPER,
-    ADAPTIVE_WHITE_TOP_PERCENT, ADAPTIVE_WHITE_MAX_SATURATION,
-    ADAPTIVE_WHITE_STEP, ADAPTIVE_WHITE_MAX_PERCENT
+    TARGET_COLOR_RGB, COLOR_HUE_TOLERANCE,
+    COLOR_SATURATION_TOLERANCE, COLOR_VALUE_TOLERANCE,
+    ADAPTIVE_COLOR_TOP_PERCENT, ADAPTIVE_COLOR_STEP, ADAPTIVE_COLOR_MAX_PERCENT
 )
 
 
@@ -222,67 +223,92 @@ class PlateLocator:
         mask = cv2.inRange(hsv, np.array(color_lower), np.array(color_upper))
         return mask
 
-    def _adaptive_white_segmentation(self, image, top_percent=None, min_saturation=None):
+    def _adaptive_color_segmentation(self, image, top_percent=None):
         """
-        自适应白色分割：选取图像中最亮的区域
+        自适应颜色分割：选取图像中最接近目标颜色的区域
 
-        不使用固定阈值，而是根据图像本身的亮度分布，
-        选取亮度值最高的 top_percent% 像素作为"白色"区域
+        根据目标颜色计算每个像素的颜色距离，选取距离最小的 top_percent% 像素
 
         Args:
             image: BGR格式图像
-            top_percent: 选取最亮的百分比，None则使用配置值
-            min_saturation: 最大饱和度阈值，排除彩色区域，None则使用配置值
+            top_percent: 选取最接近的百分比，None则使用配置值
 
         Returns:
             二值化掩码图像
         """
         if top_percent is None:
-            top_percent = ADAPTIVE_WHITE_TOP_PERCENT
-        if min_saturation is None:
-            min_saturation = ADAPTIVE_WHITE_MAX_SATURATION
+            top_percent = ADAPTIVE_COLOR_TOP_PERCENT
 
+        # 将目标颜色从RGB转换为HSV
+        target_rgb = np.uint8([[TARGET_COLOR_RGB]])
+        target_bgr = target_rgb[:, :, ::-1]  # RGB -> BGR
+        target_hsv = cv2.cvtColor(target_bgr, cv2.COLOR_BGR2HSV)[0, 0]
+        target_h, target_s, target_v = target_hsv
+
+        # 将图像转换为HSV
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         h, s, v = cv2.split(hsv)
 
-        # 计算亮度阈值：取 top_percent 对应的百分位数
-        v_threshold = np.percentile(v, 100 - top_percent)
+        # 计算颜色距离
+        # 对于低饱和度颜色（白/黑/灰），主要看S和V
+        # 对于高饱和度颜色，H、S、V都要考虑
+        is_achromatic = target_s < 30  # 目标是无彩色（白/黑/灰）
 
-        # 白色条件：亮度高 + 饱和度低（排除彩色高亮区域）
-        white_mask = (v >= v_threshold) & (s <= min_saturation)
+        if is_achromatic:
+            # 无彩色：只考虑饱和度和亮度的距离
+            s_diff = np.abs(s.astype(np.float32) - target_s)
+            v_diff = np.abs(v.astype(np.float32) - target_v)
+            # 饱和度权重更高，确保排除彩色区域
+            color_distance = s_diff * 2 + v_diff
+        else:
+            # 有彩色：考虑H、S、V三个维度
+            # H是环形的，需要特殊处理
+            h_diff = np.minimum(
+                np.abs(h.astype(np.float32) - target_h),
+                180 - np.abs(h.astype(np.float32) - target_h)
+            )
+            s_diff = np.abs(s.astype(np.float32) - target_s)
+            v_diff = np.abs(v.astype(np.float32) - target_v)
+            # H归一化到0-255范围以便加权
+            color_distance = (h_diff / 180 * 255) * 1.5 + s_diff + v_diff
 
-        # 转换为uint8类型的掩码
-        mask = (white_mask * 255).astype(np.uint8)
+        # 计算距离阈值：取最小的 top_percent%
+        distance_threshold = np.percentile(color_distance, top_percent)
+
+        # 生成掩码
+        mask = (color_distance <= distance_threshold).astype(np.uint8) * 255
 
         if self.debug:
-            self.debug_images['adaptive_white_v_channel'] = v.copy()
-            self.debug_images['adaptive_white_threshold'] = mask.copy()
-            print(f"    自适应白色阈值: V >= {v_threshold:.0f}, S <= {min_saturation}")
+            # 保存颜色距离图用于调试
+            distance_normalized = (color_distance / color_distance.max() * 255).astype(np.uint8)
+            self.debug_images['adaptive_color_distance'] = distance_normalized
+            self.debug_images['adaptive_color_mask'] = mask.copy()
+            print(f"    自适应颜色检测: 目标HSV=({target_h},{target_s},{target_v}), 距离阈值={distance_threshold:.1f}")
 
         return mask
 
-    def color_locate(self, image, use_adaptive_white=True):
+    def color_locate(self, image, use_adaptive=True):
         """
         颜色定位法：通过HSV颜色空间定位车牌
 
         Args:
             image: BGR格式原始图像
-            use_adaptive_white: 是否使用自适应白色检测（默认True）
+            use_adaptive: 是否使用自适应颜色检测（默认True）
 
         Returns:
             二值化掩码
         """
-        # 白色检测：使用自适应方法或固定阈值
-        if use_adaptive_white:
-            white_mask = self._adaptive_white_segmentation(image)
+        # 颜色检测：使用自适应方法或固定阈值
+        if use_adaptive:
+            color_mask = self._adaptive_color_segmentation(image)
         else:
-            white_mask = self._color_segmentation(image, WHITE_LOWER, WHITE_UPPER)
+            color_mask = self._color_segmentation(image, WHITE_LOWER, WHITE_UPPER)
 
         # 保存调试图片
         if self.debug:
-            self.debug_images['color_white_mask'] = white_mask.copy()
+            self.debug_images['color_mask'] = color_mask.copy()
 
-        return white_mask
+        return color_mask
 
     # def color_locate_v2(self, image):
     #     """
@@ -518,7 +544,7 @@ class PlateLocator:
         """
         定位车牌：综合使用颜色和边缘方法，支持自适应调整
 
-        如果初始参数未检出车牌，会逐步增加白色检测百分比直到找到车牌
+        如果初始参数未检出车牌，会逐步增加颜色检测百分比直到找到车牌
 
         Args:
             image: BGR格式原始图像
@@ -533,18 +559,18 @@ class PlateLocator:
         img_shape = image.shape
 
         if method in ('color', 'combined'):
-            # 颜色定位 - 使用自适应白色检测，支持动态调整
+            # 颜色定位 - 使用自适应颜色检测，支持动态调整
             print("  [颜色定位]")
 
             # 从配置的初始值开始尝试
-            current_percent = ADAPTIVE_WHITE_TOP_PERCENT
+            current_percent = ADAPTIVE_COLOR_TOP_PERCENT
             all_candidates = []
 
-            while current_percent <= ADAPTIVE_WHITE_MAX_PERCENT:
-                print(f"    尝试白色百分比: {current_percent}%")
+            while current_percent <= ADAPTIVE_COLOR_MAX_PERCENT:
+                print(f"    尝试颜色百分比: {current_percent}%")
 
-                # 使用当前百分比进行白色分割
-                color_mask = self._adaptive_white_segmentation(image, top_percent=current_percent)
+                # 使用当前百分比进行颜色分割
+                color_mask = self._adaptive_color_segmentation(image, top_percent=current_percent)
                 color_contours = self.find_contours(color_mask)
                 print(f"    找到 {len(color_contours)} 个候选轮廓")
 
@@ -560,10 +586,10 @@ class PlateLocator:
                     break
                 else:
                     # 未找到，增加百分比继续尝试
-                    current_percent += ADAPTIVE_WHITE_STEP
+                    current_percent += ADAPTIVE_COLOR_STEP
 
             if len(all_candidates) == 0:
-                print(f"    警告: 达到最大百分比 {ADAPTIVE_WHITE_MAX_PERCENT}% 仍未找到车牌")
+                print(f"    警告: 达到最大百分比 {ADAPTIVE_COLOR_MAX_PERCENT}% 仍未找到车牌")
 
             if self.debug:
                 self.debug_images['locate_color_result'] = color_mask.copy()
@@ -602,7 +628,6 @@ class PlateLocator:
 
         return verified_candidates
 
-    def _calculate_edge_density(self, image, rect, box):
         """
         计算候选区域的边缘密度
 

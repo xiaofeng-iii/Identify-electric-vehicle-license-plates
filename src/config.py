@@ -33,12 +33,21 @@ CLAHE_TILE_SIZE = (8, 8)  # 分块大小
 # PLATE_EDGE_DENSITY_MIN = 0.06
 
 # ==================== HSV颜色阈值 ====================
-# 自适应白色检测参数
-ADAPTIVE_WHITE_TOP_PERCENT = 10      # 选取最亮的百分比（初始值）
-ADAPTIVE_WHITE_STEP = 2              # 未检出车牌时，每次增加的百分比
-ADAPTIVE_WHITE_MAX_PERCENT = 50      # 最大百分比上限，防止无限增加
+# 自适应颜色检测参数
+# 目标颜色 (RGB格式，范围0-255)
+# 白色: (255, 255, 255)  蓝色: (0, 0, 255)  黄色: (255, 255, 0)  绿色: (0, 255, 0)
+TARGET_COLOR_RGB = (255, 255, 255)  # 目标颜色，默认白色
 
-ADAPTIVE_WHITE_MAX_SATURATION = 20   # 最大饱和度，排除彩色区域
+# 颜色容差 (H色相容差，范围0-180；S/V容差，范围0-255)
+# 白色/黑色/灰色等无彩色时，H容差会被忽略，只看S和V
+COLOR_HUE_TOLERANCE = 10            # 色相容差，越大匹配范围越宽
+COLOR_SATURATION_TOLERANCE = 30     # 饱和度容差
+COLOR_VALUE_TOLERANCE = 50          # 亮度容差
+
+# 自适应检测参数
+ADAPTIVE_COLOR_TOP_PERCENT = 10     # 选取最接近目标颜色的百分比（初始值）
+ADAPTIVE_COLOR_STEP = 2             # 未检出车牌时，每次增加的百分比
+ADAPTIVE_COLOR_MAX_PERCENT = 50     # 最大百分比上限，防止无限增加
 
 # 白色车牌 (电动车常见) - 固定阈值备用
 # 注意：S值不能太低，否则会把灰色地面误识别为白色
