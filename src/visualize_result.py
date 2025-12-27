@@ -110,10 +110,10 @@ def draw_plate_result(image, candidates, plate_strings, output_path=None):
         top_y = int(np.min(box[:, 1]))
 
         # 计算文本位置
-        font_size = 28
-        text_width = len(filtered_string) * font_size  # 估算文本宽度
+        font_size = 200
+        text_width = len(filtered_string) * int(font_size * 0.7)  # 估算文本宽度
         text_x = center_x - text_width // 2
-        text_y = top_y - font_size - 10
+        text_y = top_y - font_size - 100
 
         # 确保文本不超出图像边界
         if text_y < 10:
@@ -123,10 +123,10 @@ def draw_plate_result(image, candidates, plate_strings, output_path=None):
 
         # 绘制半透明背景
         overlay = result_img.copy()
-        bg_x1 = max(0, text_x - 5)
-        bg_y1 = max(0, text_y - 5)
-        bg_x2 = min(result_img.shape[1], text_x + text_width + 10)
-        bg_y2 = min(result_img.shape[0], text_y + font_size + 5)
+        bg_x1 = max(0, text_x - 30)
+        bg_y1 = max(0, text_y)
+        bg_x2 = min(result_img.shape[1], text_x + text_width + 25)
+        bg_y2 = min(result_img.shape[0], text_y + int(font_size * 1.4))
         cv2.rectangle(overlay, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
         result_img = cv2.addWeighted(overlay, 0.6, result_img, 0.4, 0)
 
