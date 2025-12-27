@@ -125,7 +125,8 @@ def process_single_image(image_path, enable_debug, verbose):
         with suppress_stdout() if not verbose else open(os.devnull):
             characters, _ = segment_characters(
                 plate_img, save_debug=enable_debug,
-                output_dir=DEBUG_DIR, prefix=basename
+                output_dir=DEBUG_DIR, prefix=basename,
+                plate_index=i+1
             )
 
         if verbose:

@@ -124,7 +124,8 @@ def test_single_image(image_path, show_result=False):
             plate_img,
             save_debug=True,
             output_dir=DEBUG_DIR,
-            prefix=basename
+            prefix=basename,
+            plate_index=i+1
         )
         print(f"    分割出 {len(characters)} 个字符")
 
