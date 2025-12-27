@@ -9,7 +9,7 @@ import os
 from config import (
     DEBUG_MODE, DEBUG_DIR, TEMPLATES_DIR,
     TEMPLATE_WIDTH, TEMPLATE_HEIGHT,
-    OCR_MATCH_METHOD, OCR_MIN_CONFIDENCE
+    OCR_MIN_CONFIDENCE
 )
 
 
@@ -101,52 +101,31 @@ class TemplateOCR:
         Returns:
             匹配度分数 (0~1, 越高越匹配)
         """
-        if OCR_MATCH_METHOD == 'ssd':
-            # SSD改进版：结合XOR和像素差异
-            # 1. 计算前景重叠度（Jaccard相似度）
-            char_fg = (char_image > 127).astype(np.uint8)
-            template_fg = (template > 127).astype(np.uint8)
+        # SSD改进版：结合Jaccard相似度和像素差异
+        # 1. 计算前景重叠度（Jaccard相似度）
+        char_fg = (char_image > 127).astype(np.uint8)
+        template_fg = (template > 127).astype(np.uint8)
 
-            intersection = np.sum(char_fg & template_fg)
-            union = np.sum(char_fg | template_fg)
+        intersection = np.sum(char_fg & template_fg)
+        union = np.sum(char_fg | template_fg)
 
-            if union == 0:
-                # 两张图都是全黑，完全匹配
-                return 1.0
+        if union == 0:
+            # 两张图都是全黑，完全匹配
+            return 1.0
 
-            # Jaccard相似度（交集/并集）
-            jaccard = intersection / union
+        # Jaccard相似度（交集/并集）
+        jaccard = intersection / union
 
-            # 2. 在交集区域计算像素值差异
-            if intersection > 0:
-                intersection_mask = (char_fg & template_fg).astype(bool)
-                diff = cv2.absdiff(char_image[intersection_mask], template[intersection_mask])
-                pixel_sim = 1.0 - (np.mean(diff) / 255.0)
-            else:
-                pixel_sim = 0.0
-
-            # 综合评分：结构相似度(Jaccard) + 像素相似度
-            similarity = 0.7 * jaccard + 0.3 * pixel_sim
-
-        elif OCR_MATCH_METHOD == 'ncc':
-            # NCC (Normalized Cross-Correlation) - 归一化互相关
-            result = cv2.matchTemplate(char_image, template, cv2.TM_CCOEFF_NORMED)
-            similarity = result[0][0]
-            # 归一化到 0~1
-            similarity = (similarity + 1) / 2
-
-        elif OCR_MATCH_METHOD == 'xor':
-            # XOR - 异或比较（只看不同的地方）
-            xor_result = cv2.bitwise_xor(char_image, template)
-            diff_pixels = np.count_nonzero(xor_result)
-            total_pixels = char_image.size
-            similarity = 1.0 - (diff_pixels / total_pixels)
-
+        # 2. 在交集区域计算像素值差异
+        if intersection > 0:
+            intersection_mask = (char_fg & template_fg).astype(bool)
+            diff = cv2.absdiff(char_image[intersection_mask], template[intersection_mask])
+            pixel_sim = 1.0 - (np.mean(diff) / 255.0)
         else:
-            # 默认使用模板匹配 TM_CCOEFF_NORMED
-            result = cv2.matchTemplate(char_image, template, cv2.TM_CCOEFF_NORMED)
-            similarity = result[0][0]
-            similarity = (similarity + 1) / 2
+            pixel_sim = 0.0
+
+        # 综合评分：结构相似度(Jaccard) + 像素相似度
+        similarity = 0.7 * jaccard + 0.3 * pixel_sim
 
         return similarity
 

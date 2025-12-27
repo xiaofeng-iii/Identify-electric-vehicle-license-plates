@@ -14,7 +14,6 @@ from config import (
     PLATE_AREA_MIN_RATIO, PLATE_AREA_MAX_RATIO,
     PLATE_RECTANGULARITY_MIN, PLATE_ANGLE_MAX,
     PLATE_STANDARD_WIDTH, PLATE_STANDARD_HEIGHT,
-    WHITE_LOWER, WHITE_UPPER,
     ADAPTIVE_WHITE_TOP_PERCENT, ADAPTIVE_WHITE_MAX_SATURATION,
     ADAPTIVE_WHITE_STEP, ADAPTIVE_WHITE_MAX_PERCENT
 )
@@ -262,22 +261,18 @@ class PlateLocator:
 
         return mask
 
-    def color_locate(self, image, use_adaptive_white=True):
+    def color_locate(self, image):
         """
         颜色定位法：通过HSV颜色空间定位车牌
 
         Args:
             image: BGR格式原始图像
-            use_adaptive_white: 是否使用自适应白色检测（默认True）
 
         Returns:
             二值化掩码
         """
-        # 白色检测：使用自适应方法或固定阈值
-        if use_adaptive_white:
-            white_mask = self._adaptive_white_segmentation(image)
-        else:
-            white_mask = self._color_segmentation(image, WHITE_LOWER, WHITE_UPPER)
+        # 白色检测：使用自适应方法
+        white_mask = self._adaptive_white_segmentation(image)
 
         # 保存调试图片
         if self.debug:
@@ -285,64 +280,6 @@ class PlateLocator:
 
         return white_mask
 
-    # def color_locate_v2(self, image):
-    #     """
-    #     颜色定位法v2：使用边缘辅助的颜色定位
-    #
-    #     先找颜色区域，再用边缘检测精确定位边框
-    #
-    #     Args:
-    #         image: BGR格式原始图像
-    #
-    #     Returns:
-    #         候选车牌轮廓列表
-    #     """
-    #     # 获取颜色掩码
-    #     color_mask = self.color_locate(image)
-    #
-    #     # 使用较小的闭运算，仅连接相邻字符
-    #     kernel_small = cv2.getStructuringElement(cv2.MORPH_RECT, (10, 3))
-    #     closed = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel_small)
-    #
-    #     # 使用RETR_TREE获取轮廓层次结构
-    #     contours, hierarchy = cv2.findContours(
-    #         closed, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
-    #     )
-    #
-    #     if hierarchy is None:
-    #         return []
-    #
-    #     # 找有子轮廓的区域（车牌内有字符）
-    #     hierarchy = hierarchy[0]
-    #     candidates_contours = []
-    #
-    #     for i, (contour, h) in enumerate(zip(contours, hierarchy)):
-    #         # h = [next, prev, child, parent]
-    #         # 检查是否有子轮廓
-    #         child_idx = h[2]
-    #         if child_idx == -1:
-    #             # 没有子轮廓，但仍可能是车牌（被字符完全覆盖）
-    #             # 使用面积和长宽比筛选
-    #             area = cv2.contourArea(contour)
-    #             if area < 500:  # 太小的跳过
-    #                 continue
-    #             candidates_contours.append(contour)
-    #         else:
-    #             # 有子轮廓，计算子轮廓数量
-    #             child_count = 0
-    #             idx = child_idx
-    #             while idx != -1:
-    #                 child_count += 1
-    #                 idx = hierarchy[idx][0]  # next sibling
-    #
-    #             # 车牌通常有5-8个字符
-    #             if child_count >= 3:
-    #                 candidates_contours.append(contour)
-    #
-    #     if self.debug:
-    #         self.debug_images['color_v2_closed'] = closed.copy()
-    #
-    #     return candidates_contours
     def filter_candidates(self, contours, image_shape, debug_filter=False, max_angle=None,
                           debug_image=None):
         """
@@ -591,19 +528,6 @@ class PlateLocator:
 
         verified_candidates = merged_candidates
 
-        # # 边缘密度验证：过滤掉内部没有足够字符特征的区域
-        # verified_candidates = []
-        # for rect, box, score in merged_candidates:
-        #     edge_density = self._calculate_edge_density(image, rect, box)
-        #     print(f"  候选区域: 中心={rect[0]}, 边缘密度={edge_density:.4f}")
-        #     if edge_density >= PLATE_EDGE_DENSITY_MIN:
-        #         # 将边缘密度纳入评分
-        #         new_score = score * 0.7 + edge_density * 0.3
-        #         verified_candidates.append((rect, box, new_score))
-
-        # # 重新按分数排序
-        # verified_candidates.sort(key=lambda x: x[2], reverse=True)
-
         # 绘制定位结果调试图
         if self.debug:
             debug_img = image.copy()
@@ -616,45 +540,6 @@ class PlateLocator:
             self.debug_images['locate_final_result'] = debug_img
 
         return verified_candidates
-
-    def _calculate_edge_density(self, image, rect, box):
-        """
-        计算候选区域的边缘密度
-
-        真正的车牌内部应有字符，会产生丰富的边缘
-        而纯色地面边缘很少
-
-        Args:
-            image: 原始BGR图像
-            rect: 最小外接矩形
-            box: 四角点坐标
-
-        Returns:
-            边缘密度值 (0~1)
-        """
-        # 提取候选区域
-        plate_img = self.extract_plate_region(image, rect, box, padding=0)
-        if plate_img.size == 0:
-            return 0.0
-
-        # 转灰度
-        if len(plate_img.shape) == 3:
-            gray = cv2.cvtColor(plate_img, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = plate_img
-
-        # Canny边缘检测
-        edges = cv2.Canny(gray, 100, 200)
-
-        # 计算边缘像素占比
-        edge_pixels = np.count_nonzero(edges)
-        total_pixels = edges.size
-
-        if total_pixels == 0:
-            return 0.0
-
-        density = edge_pixels / total_pixels
-        return density
 
     def _merge_overlapping(self, candidates, iou_threshold=0.3):
         """
