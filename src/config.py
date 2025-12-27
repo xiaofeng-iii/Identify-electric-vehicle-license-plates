@@ -80,6 +80,10 @@ PLATE_ANGLE_MAX = 15  # 最大允许偏离角度（度）
 PLATE_AREA_MIN_RATIO = 0.015   # 最小面积
 PLATE_AREA_MAX_RATIO = 0.20    # 降低最大面积，排除过大区域
 
+# 标准车牌尺寸（用于统一分辨率，便于后续处理）
+PLATE_STANDARD_WIDTH = 800    # 标准宽度
+PLATE_STANDARD_HEIGHT = 400   # 标准高度（2:1 比例）
+
 # ==================== 字符分割参数 ====================
 # 标准字符模板大小
 TEMPLATE_WIDTH = 20
@@ -91,7 +95,7 @@ CHAR_BINARY_C = 7                 # 自适应二值化常数（从均值中减�
 CHAR_BINARY_INVERT = True         # 是否反转（True=白底黑字变黑底白字）
 
 # 形态学参数
-CHAR_MORPH_CLOSE_KERNEL = (5, 5)  # 闭运算核大小（连接断裂笔画）
+CHAR_MORPH_CLOSE_KERNEL = (3, 3)  # 闭运算核大小（连接断裂笔画）
 CHAR_MORPH_OPEN_KERNEL = (7, 7)   # 开运算核大小（去除噪点）
 
 # 字符筛选参数
