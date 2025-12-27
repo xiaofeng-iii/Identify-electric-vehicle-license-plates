@@ -111,8 +111,23 @@ class CharacterSegmenter:
 
             char_contours.append((x, y, w, h, contour))
 
-        # 按x坐标排序（从左到右）
-        char_contours.sort(key=lambda c: c[0])
+        # 双排排序：先按y坐标分上下排，再按x坐标排序
+        # 电动车车牌上排是地区名（如"广州"），下排是号码（如"QK7601"）
+        if len(char_contours) > 0:
+            # 计算所有字符的y坐标中心
+            y_centers = [(c[1] + c[3] / 2) for c in char_contours]
+            y_threshold = (min(y_centers) + max(y_centers)) / 2
+
+            # 分为上排和下排
+            top_row = [c for c in char_contours if (c[1] + c[3] / 2) < y_threshold]
+            bottom_row = [c for c in char_contours if (c[1] + c[3] / 2) >= y_threshold]
+
+            # 每排按x坐标排序（从左到右）
+            top_row.sort(key=lambda c: c[0])
+            bottom_row.sort(key=lambda c: c[0])
+
+            # 合并：上排在前，下排在后
+            char_contours = top_row + bottom_row
 
         return char_contours
 
