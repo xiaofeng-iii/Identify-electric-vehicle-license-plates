@@ -74,7 +74,7 @@ PLATE_ASPECT_RATIO_MAX = 3.0
 
 # 车牌角度偏离阈值 (度数)
 # 角度为0表示完全水平，该值表示允许的最大偏离角度
-PLATE_ANGLE_MAX = 15  # 最大允许偏离角度（度）
+PLATE_ANGLE_MAX = 20  # 最大允许偏离角度（度）
 
 # 车牌面积范围 (相对于图像面积的比例)
 PLATE_AREA_MIN_RATIO = 0.015   # 最小面积
@@ -95,7 +95,7 @@ CHAR_BINARY_C = 7                 # 自适应二值化常数（从均值中减�
 CHAR_BINARY_INVERT = True         # 是否反转（True=白底黑字变黑底白字）
 
 # 形态学参数
-CHAR_MORPH_CLOSE_KERNEL = (3, 3)  # 闭运算核大小（连接断裂笔画）
+CHAR_MORPH_CLOSE_KERNEL = (5, 5)  # 闭运算核大小（连接断裂笔画）
 CHAR_MORPH_OPEN_KERNEL = (7, 7)   # 开运算核大小（去除噪点）
 
 # 字符筛选参数

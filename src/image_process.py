@@ -534,8 +534,12 @@ class PlateLocator:
         img_shape = image.shape
 
         if method in ('color', 'combined'):
-            # 颜色定位 - 使用自适应白色检测，支持动态调整
-            print("  [颜色定位]")
+            # 颜色定位 - 使用自适应白色检测，区域排除式多亮度检测
+            print("  [颜色定位 - 区域排除式检测]")
+
+            # 初始化排除掩码（全白表示所有区域可检测）
+            img_h, img_w = image.shape[:2]
+            exclusion_mask = np.ones((img_h, img_w), dtype=np.uint8) * 255
 
             # 从配置的初始值开始尝试
             current_percent = ADAPTIVE_WHITE_TOP_PERCENT
@@ -546,6 +550,10 @@ class PlateLocator:
 
                 # 使用当前百分比进行白色分割
                 color_mask = self._adaptive_white_segmentation(image, top_percent=current_percent)
+
+                # 应用排除掩码（已检测区域变黑，不会产生轮廓）
+                color_mask = cv2.bitwise_and(color_mask, exclusion_mask)
+
                 color_contours = self.find_contours(color_mask)
                 print(f"    找到 {len(color_contours)} 个候选轮廓")
 
@@ -555,19 +563,25 @@ class PlateLocator:
                 )
 
                 if len(color_candidates) > 0:
-                    # 找到候选车牌，停止搜索
-                    print(f"    成功! 在 {current_percent}% 时找到 {len(color_candidates)} 个候选车牌")
-                    all_candidates = color_candidates
-                    break
-                else:
-                    # 未找到，增加百分比继续尝试
-                    current_percent += ADAPTIVE_WHITE_STEP
+                    print(f"    在 {current_percent}% 找到 {len(color_candidates)} 个候选车牌")
+                    all_candidates.extend(color_candidates)
+
+                    # 将检测到的区域从排除掩码中移除（涂黑）
+                    for rect, box, score in color_candidates:
+                        expanded_box = self._expand_box(box, scale=1.2, img_shape=img_shape)
+                        cv2.fillPoly(exclusion_mask, [expanded_box], 0)
+
+                # 无论是否找到，都继续递增亮度
+                current_percent += ADAPTIVE_WHITE_STEP
 
             if len(all_candidates) == 0:
                 print(f"    警告: 达到最大百分比 {ADAPTIVE_WHITE_MAX_PERCENT}% 仍未找到车牌")
+            else:
+                print(f"  总共检测到 {len(all_candidates)} 个候选车牌")
 
             if self.debug:
                 self.debug_images['locate_color_result'] = color_mask.copy()
+                self.debug_images['locate_exclusion_mask'] = exclusion_mask.copy()
 
         else:
             all_candidates = []
@@ -703,6 +717,35 @@ class PlateLocator:
             return 0.0
 
         return intersection_area / union_area
+
+    def _expand_box(self, box, scale=1.2, img_shape=None):
+        """
+        扩大边界框，用于排除检测区域时留出边距
+
+        Args:
+            box: 四角点坐标 np.array
+            scale: 扩大比例 (1.2 = 扩大20%)
+            img_shape: 图像尺寸，用于裁剪越界部分
+
+        Returns:
+            扩大后的四角点坐标
+        """
+        # 计算中心点
+        center = np.mean(box, axis=0)
+
+        # 从中心向外扩大
+        expanded = center + (box - center) * scale
+
+        # 转为整数
+        expanded = expanded.astype(np.int32)
+
+        # 裁剪到图像边界内
+        if img_shape is not None:
+            img_h, img_w = img_shape[:2]
+            expanded[:, 0] = np.clip(expanded[:, 0], 0, img_w - 1)
+            expanded[:, 1] = np.clip(expanded[:, 1], 0, img_h - 1)
+
+        return expanded
 
     def extract_plate_region(self, image, rect, box, padding=5):
         """

@@ -214,13 +214,14 @@ class CharacterSegmenter:
 
         return result
 
-    def save_debug_images(self, output_dir=DEBUG_DIR, prefix=""):
+    def save_debug_images(self, output_dir=DEBUG_DIR, prefix="", plate_index=None):
         """
         保存调试图片
 
         Args:
             output_dir: 输出目录
             prefix: 文件名前缀
+            plate_index: 车牌索引（用于区分多车牌）
         """
         if not self.debug:
             return
@@ -232,8 +233,11 @@ class CharacterSegmenter:
 
         os.makedirs(actual_output_dir, exist_ok=True)
 
+        # 如果有车牌索引，在文件名中加入（格式：30_plate1_char_gray.jpg）
+        plate_prefix = f"plate{plate_index}_" if plate_index is not None else ""
+
         for idx, (name, image) in enumerate(self.debug_images.items()):
-            filename = f"{30 + idx:02d}_{name}.jpg"
+            filename = f"{30 + idx:02d}_{plate_prefix}{name}.jpg"
             filepath = os.path.join(actual_output_dir, filename)
             cv2.imwrite(filepath, image)
             print(f"已保存: {filepath}")
@@ -243,7 +247,7 @@ class CharacterSegmenter:
         self.debug_images.clear()
 
 
-def segment_characters(plate_image, save_debug=True, output_dir=DEBUG_DIR, prefix=""):
+def segment_characters(plate_image, save_debug=True, output_dir=DEBUG_DIR, prefix="", plate_index=None):
     """
     便捷函数：分割车牌字符
 
@@ -252,6 +256,7 @@ def segment_characters(plate_image, save_debug=True, output_dir=DEBUG_DIR, prefi
         save_debug: 是否保存调试图片
         output_dir: 调试图片输出目录
         prefix: 文件名前缀
+        plate_index: 车牌索引（用于区分多车牌的调试图片）
 
     Returns:
         字符图像列表
@@ -260,7 +265,7 @@ def segment_characters(plate_image, save_debug=True, output_dir=DEBUG_DIR, prefi
     characters = segmenter.extract_characters(plate_image)
 
     if save_debug:
-        segmenter.save_debug_images(output_dir, prefix)
+        segmenter.save_debug_images(output_dir, prefix, plate_index)
 
     return characters, segmenter
 
