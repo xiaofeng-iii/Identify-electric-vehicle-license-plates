@@ -13,6 +13,7 @@ from config import (
     PLATE_ASPECT_RATIO_MIN, PLATE_ASPECT_RATIO_MAX,
     PLATE_AREA_MIN_RATIO, PLATE_AREA_MAX_RATIO,
     PLATE_RECTANGULARITY_MIN, PLATE_ANGLE_MAX,
+    PLATE_STANDARD_WIDTH, PLATE_STANDARD_HEIGHT,
     WHITE_LOWER, WHITE_UPPER,
     ADAPTIVE_WHITE_TOP_PERCENT, ADAPTIVE_WHITE_MAX_SATURATION,
     ADAPTIVE_WHITE_STEP, ADAPTIVE_WHITE_MAX_PERCENT
@@ -795,6 +796,14 @@ class PlateLocator:
         y2 = min(img_height, center_y + half_h)
 
         plate_region = rotated[y1:y2, x1:x2]
+
+        # 统一缩放到标准尺寸，使后续处理参数更稳定
+        if plate_region.size > 0:
+            plate_region = cv2.resize(
+                plate_region,
+                (PLATE_STANDARD_WIDTH, PLATE_STANDARD_HEIGHT),
+                interpolation=cv2.INTER_LINEAR
+            )
 
         return plate_region
 
