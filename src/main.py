@@ -16,10 +16,11 @@ import cv2
 import argparse
 import numpy as np
 from contextlib import contextmanager
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from config import RAW_IMAGES_DIR, RESULT_DIR, DEBUG_DIR
+from config import RAW_IMAGES_DIR, RESULT_DIR, DEBUG_DIR, PARALLEL_WORKERS
 
 
 @contextmanager
@@ -198,6 +199,20 @@ def process_single_image(image_path, enable_debug, verbose):
     return plate_strings, len(candidates)
 
 
+def _process_single_image_wrapper(args):
+    """
+    包装函数，用于多进程调用
+    """
+    img_path, enable_debug, verbose = args
+    try:
+        plates, count = process_single_image(img_path, enable_debug, verbose)
+        basename = os.path.basename(img_path)
+        return True, img_path, basename, plates, count
+    except Exception as e:
+        basename = os.path.basename(img_path)
+        return False, img_path, basename, str(e), 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="车牌识别系统 - 批量识别",
@@ -216,6 +231,8 @@ def main():
                        help="显示详细处理流程（5个阶段的详细输出）")
     parser.add_argument("--show", action="store_true",
                        help="显示识别结果窗口（暂未实现）")
+    parser.add_argument("--serial", action="store_true",
+                       help="串行处理（禁用多进程并行）")
 
     args = parser.parse_args()
 
@@ -228,42 +245,69 @@ def main():
         return
 
     print(f"找到 {len(images)} 张图片")
+    if not args.serial:
+        print(f"并行进程数: {PARALLEL_WORKERS}")
     print("=" * 50)
 
     # 批量处理
     success_count = 0
     total_plates = 0
 
-    for i, img_path in enumerate(images, 1):
-        basename = os.path.basename(img_path)
+    if args.serial or args.verbose:
+        # 串行处理（verbose 模式需要串行以保证输出顺序）
+        for i, img_path in enumerate(images, 1):
+            basename = os.path.basename(img_path)
 
-        if not args.verbose:
-            # 简洁模式：只显示进度
-            print(f"\n[{i}/{len(images)}] {basename}")
-        else:
-            # 详细模式：显示完整路径
-            print(f"\n[{i}/{len(images)}] {img_path}")
-
-        try:
-            plates, count = process_single_image(
-                img_path, args.debug, args.verbose
-            )
-            success_count += 1
-            total_plates += count
-
-            # 简洁模式：显示识别结果
             if not args.verbose:
-                for plate in plates:
+                print(f"\n[{i}/{len(images)}] {basename}")
+            else:
+                print(f"\n[{i}/{len(images)}] {img_path}")
+
+            try:
+                plates, count = process_single_image(
+                    img_path, args.debug, args.verbose
+                )
+                success_count += 1
+                total_plates += count
+
+                if not args.verbose:
+                    for plate in plates:
+                        filtered = plate.replace('?', '')
+                        if filtered:
+                            print(f"  ✓ {filtered}")
+                    print(f"  结果: output/results/{os.path.splitext(basename)[0]}_result.jpg")
+
+            except Exception as e:
+                print(f"  ✗ 处理失败: {e}")
+                if args.verbose:
+                    import traceback
+                    traceback.print_exc()
+    else:
+        # 并行处理
+        task_args = [(img_path, args.debug, False) for img_path in images]
+        results = []
+
+        with ProcessPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
+            futures = {executor.submit(_process_single_image_wrapper, task): task[0] for task in task_args}
+            for future in as_completed(futures):
+                results.append(future.result())
+
+        # 按原始顺序输出结果
+        results_dict = {r[1]: r for r in results}
+        for i, img_path in enumerate(images, 1):
+            success, _, basename, plates_or_error, count = results_dict[img_path]
+            print(f"\n[{i}/{len(images)}] {basename}")
+
+            if success:
+                success_count += 1
+                total_plates += count
+                for plate in plates_or_error:
                     filtered = plate.replace('?', '')
                     if filtered:
                         print(f"  ✓ {filtered}")
                 print(f"  结果: output/results/{os.path.splitext(basename)[0]}_result.jpg")
-
-        except Exception as e:
-            print(f"  ✗ 处理失败: {e}")
-            if args.verbose:
-                import traceback
-                traceback.print_exc()
+            else:
+                print(f"  ✗ 处理失败: {plates_or_error}")
 
     # 统计摘要
     print("\n" + "=" * 50)

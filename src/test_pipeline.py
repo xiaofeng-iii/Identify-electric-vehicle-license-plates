@@ -12,6 +12,7 @@ import os
 import cv2
 import numpy as np
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # 添加src目录到路径
 sys.path.insert(0, os.path.dirname(__file__))
@@ -20,7 +21,7 @@ from image_process import ImagePreprocessor, preprocess_image, PlateLocator, loc
 from char_segment import segment_characters
 from match_ocr import recognize_characters
 from visualize_result import create_result_summary
-from config import DEBUG_DIR, RAW_IMAGES_DIR, RESULT_DIR
+from config import DEBUG_DIR, RAW_IMAGES_DIR, RESULT_DIR, PARALLEL_WORKERS
 
 
 def display_result(original, plate_regions, window_name="车牌识别结果"):
@@ -210,9 +211,21 @@ def test_single_image(image_path, show_result=False):
     return True, len(candidates)
 
 
+def _test_single_image_wrapper(args):
+    """
+    包装函数，用于多进程调用
+    """
+    img_path, show_result = args
+    try:
+        return test_single_image(img_path, show_result=show_result)
+    except Exception as e:
+        print(f"处理失败 {img_path}: {e}")
+        return False, 0
+
+
 def test_all_images_in_dir(dir_path=RAW_IMAGES_DIR, show_result=False):
     """
-    测试目录下所有图片
+    测试目录下所有图片（并行处理）
 
     Args:
         dir_path: 图片目录路径
@@ -237,17 +250,26 @@ def test_all_images_in_dir(dir_path=RAW_IMAGES_DIR, show_result=False):
         return
 
     print(f"找到 {len(all_images)} 张图片")
+    print(f"并行进程数: {PARALLEL_WORKERS}")
     print("=" * 60)
 
     # 统计结果
     success_count = 0
     total_plates = 0
 
-    for img_path in all_images:
-        success, plate_count = test_single_image(img_path, show_result=show_result)
-        if success:
-            success_count += 1
-            total_plates += plate_count
+    # 并行处理
+    task_args = [(img_path, show_result) for img_path in all_images]
+    with ProcessPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
+        futures = {executor.submit(_test_single_image_wrapper, args): args[0] for args in task_args}
+        for future in as_completed(futures):
+            img_path = futures[future]
+            try:
+                success, plate_count = future.result()
+                if success:
+                    success_count += 1
+                    total_plates += plate_count
+            except Exception as e:
+                print(f"处理异常 {img_path}: {e}")
 
     # 输出统计
     print("\n" + "=" * 60)

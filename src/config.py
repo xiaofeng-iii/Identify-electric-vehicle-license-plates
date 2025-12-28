@@ -34,8 +34,8 @@ CLAHE_TILE_SIZE = (8, 8)  # 分块大小
 # ==================== HSV颜色阈值 ====================
 # 自适应白色检测参数
 ADAPTIVE_WHITE_TOP_PERCENT = 1      # 选取最亮的百分比（初始值）
-ADAPTIVE_WHITE_STEP = 5              # 未检出车牌时，每次增加的百分比
-ADAPTIVE_WHITE_MAX_PERCENT = 51      # 最大百分比上限，防止无限增加
+ADAPTIVE_WHITE_STEP = 2              # 未检出车牌时，每次增加的百分比
+ADAPTIVE_WHITE_MAX_PERCENT = 41      # 最大百分比上限，防止无限增加
 
 ADAPTIVE_WHITE_MAX_SATURATION = 20   # 最大饱和度，排除彩色区域
 
@@ -71,7 +71,7 @@ CHAR_BINARY_INVERT = True         # 是否反转（True=白底黑字变黑底白
 
 # 形态学参数
 CHAR_MORPH_CLOSE_KERNEL = (11, 11)  # 闭运算核大小（连接断裂笔画）
-CHAR_MORPH_OPEN_KERNEL = (5, 5)   # 开运算核大小（去除噪点）
+CHAR_MORPH_OPEN_KERNEL = (7, 7)   # 开运算核大小（去除噪点）
 
 # 字符筛选参数
 CHAR_HEIGHT_RATIO_MIN = 0.2       # 字符高度占车牌高度的最小比例
@@ -93,3 +93,6 @@ OCR_MIN_CONFIDENCE = 0.62
 
 # ==================== 调试开关 ====================
 DEBUG_MODE = False  # 默认关闭，由 main.py 根据 --debug 参数动态控制
+
+# ==================== 并行处理参数 ====================
+PARALLEL_WORKERS = 10  # 并行处理图片的进程数
