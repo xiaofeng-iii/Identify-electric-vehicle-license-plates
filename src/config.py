@@ -33,9 +33,9 @@ CLAHE_TILE_SIZE = (8, 8)  # 分块大小
 
 # ==================== HSV颜色阈值 ====================
 # 自适应白色检测参数
-ADAPTIVE_WHITE_TOP_PERCENT = 10      # 选取最亮的百分比（初始值）
-ADAPTIVE_WHITE_STEP = 2              # 未检出车牌时，每次增加的百分比
-ADAPTIVE_WHITE_MAX_PERCENT = 50      # 最大百分比上限，防止无限增加
+ADAPTIVE_WHITE_TOP_PERCENT = 1      # 选取最亮的百分比（初始值）
+ADAPTIVE_WHITE_STEP = 5              # 未检出车牌时，每次增加的百分比
+ADAPTIVE_WHITE_MAX_PERCENT = 51      # 最大百分比上限，防止无限增加
 
 ADAPTIVE_WHITE_MAX_SATURATION = 20   # 最大饱和度，排除彩色区域
 
