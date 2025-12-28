@@ -114,20 +114,31 @@ class CharacterSegmenter:
         # 双排排序：先按y坐标分上下排，再按x坐标排序
         # 电动车车牌上排是地区名（如"广州"），下排是号码（如"QK7601"）
         if len(char_contours) > 0:
-            # 计算所有字符的y坐标中心
+            # 计算所有字符的y坐标中心和平均高度
             y_centers = [(c[1] + c[3] / 2) for c in char_contours]
-            y_threshold = (min(y_centers) + max(y_centers)) / 2
+            avg_height = sum(c[3] for c in char_contours) / len(char_contours)
 
-            # 分为上排和下排
-            top_row = [c for c in char_contours if (c[1] + c[3] / 2) < y_threshold]
-            bottom_row = [c for c in char_contours if (c[1] + c[3] / 2) >= y_threshold]
+            y_min, y_max = min(y_centers), max(y_centers)
+            y_range = y_max - y_min
 
-            # 每排按x坐标排序（从左到右）
-            top_row.sort(key=lambda c: c[0])
-            bottom_row.sort(key=lambda c: c[0])
+            # 判断是否真的有两排：上下排y坐标差异应超过平均字符高度的50%
+            if y_range > avg_height * 0.5:
+                # 确实有两排，按y坐标中点分割
+                y_threshold = (y_min + y_max) / 2
 
-            # 合并：上排在前，下排在后
-            char_contours = top_row + bottom_row
+                # 分为上排和下排
+                top_row = [c for c in char_contours if (c[1] + c[3] / 2) < y_threshold]
+                bottom_row = [c for c in char_contours if (c[1] + c[3] / 2) >= y_threshold]
+
+                # 每排按x坐标排序（从左到右）
+                top_row.sort(key=lambda c: c[0])
+                bottom_row.sort(key=lambda c: c[0])
+
+                # 合并：上排在前，下排在后
+                char_contours = top_row + bottom_row
+            else:
+                # 单排，直接按x坐标排序
+                char_contours.sort(key=lambda c: c[0])
 
         return char_contours
 

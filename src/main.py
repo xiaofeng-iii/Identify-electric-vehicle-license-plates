@@ -14,6 +14,7 @@ import sys
 import os
 import cv2
 import argparse
+import numpy as np
 from contextlib import contextmanager
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -100,8 +101,17 @@ def process_single_image(image_path, enable_debug, verbose):
     plate_regions = []
     for i, (rect, box, score) in enumerate(candidates):
         if verbose:
+            # 计算真实角度（长边与水平方向的夹角）
+            edge1 = np.linalg.norm(box[0] - box[1])
+            edge2 = np.linalg.norm(box[1] - box[2])
+            if edge1 >= edge2:
+                long_edge_vec = box[1] - box[0]
+            else:
+                long_edge_vec = box[2] - box[1]
+            real_angle = np.degrees(np.arctan2(long_edge_vec[1], long_edge_vec[0]))
+
             print(f"  候选 {i+1}: 分数={score:.3f}, 中心={rect[0]}, "
-                  f"尺寸={rect[1]}, 角度={rect[2]:.1f}°")
+                  f"尺寸={rect[1]}, 角度={real_angle:.1f}°")
 
         plate_img = locator.extract_plate_region(original, rect, box)
         if plate_img.size > 0:

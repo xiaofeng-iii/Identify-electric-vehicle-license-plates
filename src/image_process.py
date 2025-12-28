@@ -281,7 +281,7 @@ class PlateLocator:
         return white_mask
 
     def filter_candidates(self, contours, image_shape, debug_filter=False, max_angle=None,
-                          debug_image=None):
+                          collect_debug_info=None):
         """
         筛选候选区域：根据长宽比、面积、矩形度和角度过滤轮廓
 
@@ -290,7 +290,7 @@ class PlateLocator:
             image_shape: 图像尺寸 (height, width, ...)
             debug_filter: 是否输出过滤调试信息
             max_angle: 最大允许偏离角度，None则使用配置值
-            debug_image: 用于可视化的原始图像，传入则会生成筛选过程可视化
+            collect_debug_info: 传入列表则收集筛选信息用于后续统一绘制
 
         Returns:
             符合条件的候选矩形列表，每个元素为 (rect, box, score)
@@ -304,9 +304,6 @@ class PlateLocator:
         img_height, img_width = image_shape[:2]
         img_area = img_height * img_width
         candidates = []
-
-        # 用于调试可视化：记录通过面积筛选的候选块及其筛选结果
-        filter_debug_info = []  # [(contour, box, reason, details)]
 
         for i, contour in enumerate(contours):
             # 计算轮廓面积
@@ -356,8 +353,8 @@ class PlateLocator:
             if angle_deviation > max_angle:
                 if debug_filter:
                     print(f"    轮廓{i}: 角度偏离{angle_deviation:.1f}°超过阈值 (max={max_angle}°)")
-                if debug_image is not None:
-                    filter_debug_info.append((contour, box, 'angle', f'角度:{angle:.1f}°'))
+                if collect_debug_info is not None:
+                    collect_debug_info.append((contour, box, 'angle', f'角度:{angle:.1f}°'))
                 continue
 
             # 避免除零
@@ -372,8 +369,8 @@ class PlateLocator:
             if rectangularity < PLATE_RECTANGULARITY_MIN:
                 if debug_filter:
                     print(f"    轮廓{i}: 矩形度{rectangularity:.2f}太低 (min={PLATE_RECTANGULARITY_MIN})")
-                if debug_image is not None:
-                    filter_debug_info.append((contour, box, 'rect', f'矩形度:{rectangularity:.2f}'))
+                if collect_debug_info is not None:
+                    collect_debug_info.append((contour, box, 'rect', f'矩形度:{rectangularity:.2f}'))
                 continue
 
             # 计算长宽比
@@ -383,8 +380,8 @@ class PlateLocator:
             if aspect_ratio < PLATE_ASPECT_RATIO_MIN or aspect_ratio > PLATE_ASPECT_RATIO_MAX:
                 if debug_filter:
                     print(f"    轮廓{i}: 长宽比{aspect_ratio:.2f}不符合 ({PLATE_ASPECT_RATIO_MIN}~{PLATE_ASPECT_RATIO_MAX})")
-                if debug_image is not None:
-                    filter_debug_info.append((contour, box, 'ratio', f'比例:{aspect_ratio:.2f}'))
+                if collect_debug_info is not None:
+                    collect_debug_info.append((contour, box, 'ratio', f'比例:{aspect_ratio:.2f}'))
                 continue
 
             # 计算评分：长宽比越接近3越好（中国车牌标准比例约为3:1）
@@ -399,36 +396,10 @@ class PlateLocator:
             if debug_filter:
                 print(f"    轮廓{i}: 通过! 面积={area:.0f}, 长宽比={aspect_ratio:.2f}, 矩形度={rectangularity:.2f}, 角度={angle:.1f}°")
 
-            if debug_image is not None:
-                filter_debug_info.append((contour, box, 'PASS', f'比例:{aspect_ratio:.2f} 角度:{angle:.1f}°'))
+            if collect_debug_info is not None:
+                collect_debug_info.append((contour, box, 'PASS', f'比例:{aspect_ratio:.2f} 角度:{angle:.1f}°'))
 
             candidates.append((rect, box, score))
-
-        # 生成筛选过程可视化图片
-        if debug_image is not None and len(filter_debug_info) > 0:
-            vis_img = debug_image.copy()
-            # 颜色映射：不同筛选原因用不同颜色
-            color_map = {
-                'angle': (0, 0, 255),    # 红色：角度不符
-                'rect': (0, 165, 255),   # 橙色：矩形度不符
-                'ratio': (0, 255, 255),  # 黄色：长宽比不符
-                'PASS': (0, 255, 0)      # 绿色：通过
-            }
-            for idx, (contour, box, reason, details) in enumerate(filter_debug_info):
-                color = color_map.get(reason, (255, 255, 255))
-                # 绘制外接矩形
-                cv2.drawContours(vis_img, [box], 0, color, 2)
-                # 绘制轮廓
-                cv2.drawContours(vis_img, [contour], 0, color, 1)
-                # 标注信息
-                center_x = int(np.mean(box[:, 0]))
-                center_y = int(np.mean(box[:, 1]))
-                label = f"{idx}:{reason}"
-                cv2.putText(vis_img, label, (center_x - 30, center_y - 10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-                cv2.putText(vis_img, details, (center_x - 40, center_y + 10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
-            self.debug_images['filter_candidates_debug'] = vis_img
 
         # 按评分排序
         candidates.sort(key=lambda x: x[2], reverse=True)
@@ -470,6 +441,9 @@ class PlateLocator:
         """
         img_shape = image.shape
 
+        # 累积筛选调试信息（用于最后统一绘制）
+        all_filter_debug_info = [] if self.debug else None
+
         if method in ('color', 'combined'):
             # 颜色定位 - 使用自适应白色检测，区域排除式多亮度检测
             print("  [颜色定位 - 区域排除式检测]")
@@ -496,7 +470,7 @@ class PlateLocator:
 
                 color_candidates = self.filter_candidates(
                     color_contours, img_shape, debug_filter=False,
-                    debug_image=image if self.debug else None
+                    collect_debug_info=all_filter_debug_info
                 )
 
                 if len(color_candidates) > 0:
@@ -528,8 +502,30 @@ class PlateLocator:
 
         verified_candidates = merged_candidates
 
-        # 绘制定位结果调试图
+        # 绘制调试图
         if self.debug:
+            # 绘制筛选过程调试图（统一绘制所有筛选信息）
+            if all_filter_debug_info and len(all_filter_debug_info) > 0:
+                vis_img = image.copy()
+                color_map = {
+                    'angle': (0, 0, 255),    # 红色：角度不符
+                    'rect': (0, 165, 255),   # 橙色：矩形度不符
+                    'ratio': (0, 255, 255),  # 黄色：长宽比不符
+                    'PASS': (0, 255, 0)      # 绿色：通过
+                }
+                for contour, box, reason, details in all_filter_debug_info:
+                    color = color_map.get(reason, (255, 255, 255))
+                    cv2.drawContours(vis_img, [box], 0, color, 2)
+                    cv2.drawContours(vis_img, [contour], 0, color, 1)
+                    center_x = int(np.mean(box[:, 0]))
+                    center_y = int(np.mean(box[:, 1]))
+                    cv2.putText(vis_img, reason, (center_x - 30, center_y - 10),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                    cv2.putText(vis_img, details, (center_x - 40, center_y + 10),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+                self.debug_images['filter_candidates_debug'] = vis_img
+
+            # 绘制定位结果调试图
             debug_img = image.copy()
             for i, (rect, box, score) in enumerate(verified_candidates):
                 color = (0, 255, 0) if i == 0 else (0, 255, 255)
