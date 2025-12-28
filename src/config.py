@@ -52,7 +52,7 @@ PLATE_ASPECT_RATIO_MAX = 3.0
 PLATE_ANGLE_MAX = 35  # 最大允许偏离角度（度）
 
 # 车牌面积范围 (相对于图像面积的比例)
-PLATE_AREA_MIN_RATIO = 0.015   # 最小面积
+PLATE_AREA_MIN_RATIO = 0.01   # 最小面积
 PLATE_AREA_MAX_RATIO = 0.20    # 降低最大面积，排除过大区域
 
 # 标准车牌尺寸（用于统一分辨率，便于后续处理）
