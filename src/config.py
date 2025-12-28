@@ -37,8 +37,6 @@ ADAPTIVE_WHITE_TOP_PERCENT = 1      # 选取最亮的百分比（初始值）
 ADAPTIVE_WHITE_STEP = 2              # 未检出车牌时，每次增加的百分比
 ADAPTIVE_WHITE_MAX_PERCENT = 41      # 最大百分比上限，防止无限增加
 
-ADAPTIVE_WHITE_MAX_SATURATION = 20   # 最大饱和度，排除彩色区域
-
 # ==================== 轮廓筛选参数 ====================
 # 矩形度阈值 (轮廓面积/外接矩形面积)，车牌应该接近矩形
 PLATE_RECTANGULARITY_MIN = 0.5

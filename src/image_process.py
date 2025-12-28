@@ -206,22 +206,6 @@ class PlateLocator:
         self.debug = debug
         self.debug_images = {}
 
-    def _color_segmentation(self, image, color_lower, color_upper):
-        """
-        颜色分割：在HSV空间中提取指定颜色区域
-
-        Args:
-            image: BGR格式图像
-            color_lower: HSV下界 (H, S, V)
-            color_upper: HSV上界 (H, S, V)
-
-        Returns:
-            二值化掩码图像
-        """
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, np.array(color_lower), np.array(color_upper))
-        return mask
-
     def _adaptive_white_segmentation(self, image, top_percent=None):
         """
         自适应白色分割：选取图像中最"白"的区域
@@ -343,13 +327,6 @@ class PlateLocator:
 
             # 计算长边与水平方向的夹角 (范围 -90° 到 90°)
             angle = np.degrees(np.arctan2(long_edge_vec[1], long_edge_vec[0]))
-
-            # 标准化到 [-45, 45]，因为车牌长边接近水平时角度应接近0
-            # 如果角度超出此范围，说明我们选的是"竖着"的方向，需要修正
-            # while angle > 45:
-            #     angle -= 90
-            # while angle <= -45:
-            #     angle += 90
 
             # 角度偏离过滤
             angle_deviation = abs(angle)

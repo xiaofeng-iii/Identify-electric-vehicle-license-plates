@@ -8,7 +8,6 @@ import cv2
 import numpy as np
 import os
 from PIL import Image, ImageDraw, ImageFont
-from config import OUTPUT_DIR
 
 
 def get_chinese_font(size=32):
