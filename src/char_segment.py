@@ -136,11 +136,11 @@ class CharacterSegmenter:
         # 预处理
         binary = self.preprocess_plate(plate_image)
 
-        # 形态学操作：闭运算连接断裂笔画，开运算去除噪点
-        close_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, CHAR_MORPH_CLOSE_KERNEL)
+        # 形态学操作：先开运算去除噪点，再闭运算连接断裂笔画
         open_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, CHAR_MORPH_OPEN_KERNEL)
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, close_kernel)
+        close_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, CHAR_MORPH_CLOSE_KERNEL)
         binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, open_kernel)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, close_kernel)
 
         if self.debug:
             self.debug_images['char_morphology'] = binary.copy()
