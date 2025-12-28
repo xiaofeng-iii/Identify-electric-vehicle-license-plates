@@ -14,7 +14,7 @@ from config import (
     PLATE_AREA_MIN_RATIO, PLATE_AREA_MAX_RATIO,
     PLATE_RECTANGULARITY_MIN, PLATE_ANGLE_MAX,
     PLATE_STANDARD_WIDTH, PLATE_STANDARD_HEIGHT,
-    ADAPTIVE_WHITE_TOP_PERCENT, ADAPTIVE_WHITE_MAX_SATURATION,
+    ADAPTIVE_WHITE_TOP_PERCENT,
     ADAPTIVE_WHITE_STEP, ADAPTIVE_WHITE_MAX_PERCENT
 )
 
@@ -222,42 +222,45 @@ class PlateLocator:
         mask = cv2.inRange(hsv, np.array(color_lower), np.array(color_upper))
         return mask
 
-    def _adaptive_white_segmentation(self, image, top_percent=None, min_saturation=None):
+    def _adaptive_white_segmentation(self, image, top_percent=None):
         """
-        自适应白色分割：选取图像中最亮的区域
+        自适应白色分割：选取图像中最"白"的区域
 
-        不使用固定阈值，而是根据图像本身的亮度分布，
-        选取亮度值最高的 top_percent% 像素作为"白色"区域
+        使用 whiteness = V - S 作为白色程度指标
+        V高且S低的区域更接近白色
 
         Args:
             image: BGR格式图像
-            top_percent: 选取最亮的百分比，None则使用配置值
-            min_saturation: 最大饱和度阈值，排除彩色区域，None则使用配置值
+            top_percent: 选取最白的百分比，None则使用配置值
 
         Returns:
             二值化掩码图像
         """
         if top_percent is None:
             top_percent = ADAPTIVE_WHITE_TOP_PERCENT
-        if min_saturation is None:
-            min_saturation = ADAPTIVE_WHITE_MAX_SATURATION
 
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         h, s, v = cv2.split(hsv)
 
-        # 计算亮度阈值：取 top_percent 对应的百分位数
-        v_threshold = np.percentile(v, 100 - top_percent)
+        # 计算白色程度：whiteness = V - S（亮度高且饱和度低的更"白"）
+        whiteness = v.astype(np.int16) - s.astype(np.int16)
 
-        # 白色条件：亮度高 + 饱和度低（排除彩色高亮区域）
-        white_mask = (v >= v_threshold) & (s <= min_saturation)
+        # 计算白色程度阈值：取 top_percent 对应的百分位数
+        whiteness_threshold = np.percentile(whiteness, 100 - top_percent)
+
+        # 白色条件：只用 whiteness 阈值（已包含饱和度信息）
+        white_mask = whiteness >= whiteness_threshold
 
         # 转换为uint8类型的掩码
         mask = (white_mask * 255).astype(np.uint8)
 
         if self.debug:
-            self.debug_images['adaptive_white_v_channel'] = v.copy()
+            # 保存白色程度图用于调试（归一化到0-255显示）
+            whiteness_normalized = ((whiteness - whiteness.min()) /
+                                   (whiteness.max() - whiteness.min() + 1) * 255).astype(np.uint8)
+            self.debug_images['adaptive_white_v_channel'] = whiteness_normalized
             self.debug_images['adaptive_white_threshold'] = mask.copy()
-            print(f"    自适应白色阈值: V >= {v_threshold:.0f}, S <= {min_saturation}")
+            print(f"    自适应白色阈值: whiteness(V-S) >= {whiteness_threshold:.0f}")
 
         return mask
 

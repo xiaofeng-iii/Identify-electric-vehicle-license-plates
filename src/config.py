@@ -44,8 +44,8 @@ ADAPTIVE_WHITE_MAX_SATURATION = 20   # 最大饱和度，排除彩色区域
 PLATE_RECTANGULARITY_MIN = 0.5
 
 # 车牌长宽比范围 (用于过滤非车牌区域)
-PLATE_ASPECT_RATIO_MIN = 1.5
-PLATE_ASPECT_RATIO_MAX = 3.0
+PLATE_ASPECT_RATIO_MIN = 1.7
+PLATE_ASPECT_RATIO_MAX = 2.3
 
 # 车牌角度偏离阈值 (度数)
 # 角度为0表示完全水平，该值表示允许的最大偏离角度
