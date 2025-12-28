@@ -78,6 +78,17 @@ class CharacterSegmenter:
         """
         img_height, img_width = binary_image.shape[:2]
 
+        # 涂黑图像边缘，断开边框与字符的连接
+        edge_width = 30
+        binary_image = binary_image.copy()
+        binary_image[:edge_width, :] = 0  # 上边
+        binary_image[-edge_width:, :] = 0  # 下边
+        binary_image[:, :edge_width] = 0  # 左边
+        binary_image[:, -edge_width:] = 0  # 右边
+
+        if self.debug:
+            self.debug_images['char_edge_cleared'] = binary_image.copy()
+
         # 查找轮廓
         contours, _ = cv2.findContours(
             binary_image,
