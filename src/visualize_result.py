@@ -218,8 +218,4 @@ def create_result_summary(image, candidates, plate_strings, recognition_details,
         print(f"结果已保存: {output_path}")
 
     return canvas
-
-
-if __name__ == "__main__":
-    # 测试代码
-    print("请使用 test_pipeline.py 运行完整流程")
+    

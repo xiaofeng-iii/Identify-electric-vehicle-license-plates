@@ -268,35 +268,3 @@ def segment_characters(plate_image, save_debug=True, output_dir=DEBUG_DIR, prefi
         segmenter.save_debug_images(output_dir, prefix, plate_index)
 
     return characters, segmenter
-
-
-if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) > 1:
-        plate_path = sys.argv[1]
-    else:
-        # 默认测试
-        plate_path = os.path.join(DEBUG_DIR, "test", "20_plate_1.jpg")
-
-    if not os.path.exists(plate_path):
-        print(f"车牌图片不存在: {plate_path}")
-        sys.exit(1)
-
-    print(f"测试车牌图片: {plate_path}")
-
-    plate_img = cv2.imread(plate_path)
-    if plate_img is None:
-        print("无法读取图片")
-        sys.exit(1)
-
-    basename = os.path.splitext(os.path.basename(plate_path))[0]
-    characters, segmenter = segment_characters(plate_img, prefix=basename)
-
-    print(f"分割出 {len(characters)} 个字符")
-    for i, (char_img, bbox) in enumerate(characters):
-        print(f"  字符 {i+1}: 位置={bbox}")
-        # 保存单个字符
-        char_path = os.path.join(DEBUG_DIR, basename, f"char_{i+1}.jpg")
-        cv2.imwrite(char_path, char_img)
-        print(f"    已保存: {char_path}")
