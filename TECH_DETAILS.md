@@ -14,6 +14,12 @@
 
 **技术栈**：Python + OpenCV + NumPy
 
+**核心特点**：
+- 纯 OpenCV 实现，无需 GPU
+- 支持多车牌检测
+- 自适应光照变化
+- 多进程并行处理
+
 ---
 
 ## 二、车牌定位（核心创新点）
@@ -30,42 +36,71 @@
 
 本系统定义**白色程度指标**：
 
-```
+```python
 whiteness = V - S
+```
+
+**实现代码**（`image_process.py:217-237`）：
+```python
+hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+h, s, v = cv2.split(hsv)
+
+# 计算白色程度：whiteness = V - S
+whiteness = v.astype(np.int16) - s.astype(np.int16)
+
+# 计算白色程度阈值：取 top_percent 对应的百分位数
+whiteness_threshold = np.percentile(whiteness, 100 - top_percent)
+
+# 白色条件
+white_mask = whiteness >= whiteness_threshold
+mask = (white_mask * 255).astype(np.uint8)
 ```
 
 该指标综合考虑亮度和饱和度：
 - V 越大、S 越小 → whiteness 越大 → 越接近白色
 - 相比单独使用 V 通道，能更好地排除高亮度但有颜色的区域（如黄色、蓝色区域）
 
-#### 2.1.2 梯度递增检测算法
+#### 2.1.2 梯度递增 + 区域排除式检测算法
 
-不同车牌在同一图像中可能具有不同的亮度（如逆光、阴影）。为解决此问题，系统采用**梯度递增检测**：
+不同车牌在同一图像中可能具有不同的亮度（如逆光、阴影）。为解决多车牌检测问题，系统采用**梯度递增 + 区域排除式检测**：
+
+**实现流程**（`image_process.py:402-469`）：
 
 ```python
-current_percent = 1%  # 初始：选取最亮的 1% 区域
-while current_percent <= 41%:
-    # 计算当前百分比对应的白色程度阈值
-    threshold = np.percentile(whiteness, 100 - current_percent)
+# 初始化排除掩码（全白表示所有区域可检测）
+exclusion_mask = np.ones((img_h, img_w), dtype=np.uint8) * 255
 
-    # 生成白色掩码
-    white_mask = whiteness >= threshold
+current_percent = ADAPTIVE_WHITE_TOP_PERCENT  # 1%
+all_candidates = []
+
+while current_percent <= ADAPTIVE_WHITE_MAX_PERCENT:  # 最大 41%
+    # 使用当前百分比进行白色分割
+    color_mask = self._adaptive_white_segmentation(image, top_percent=current_percent)
+
+    # 应用排除掩码（已检测区域变黑，不会产生轮廓）
+    color_mask = cv2.bitwise_and(color_mask, exclusion_mask)
 
     # 在掩码中寻找车牌候选区域
-    candidates = find_plate_candidates(white_mask)
+    color_contours = self.find_contours(color_mask)
+    color_candidates = self.filter_candidates(color_contours, img_shape)
 
-    if found_new_plates:
-        # 将已检测区域从掩码中排除（涂黑）
-        exclusion_mask = remove_detected_regions(candidates)
+    if len(color_candidates) > 0:
+        all_candidates.extend(color_candidates)
 
-    current_percent += 2%  # 递增步长
+        # 将检测到的区域从排除掩码中移除（涂黑）
+        for rect, box, score in color_candidates:
+            expanded_box = self._expand_box(box, scale=1.2, img_shape=img_shape)
+            cv2.fillPoly(exclusion_mask, [expanded_box], 0)
+
+    current_percent += ADAPTIVE_WHITE_STEP  # 递增 2%
 ```
 
 **鲁棒性体现**：
-- 从最亮区域开始检测，优先找到最明显的车牌
-- 逐步降低亮度阈值，检测较暗的车牌
-- 区域排除机制避免重复检测同一车牌
+- 从最亮区域开始检测（1%），优先找到最明显的车牌
+- 逐步降低亮度阈值（每次+2%），检测较暗的车牌
+- **区域排除机制**：检测到车牌后，在排除掩码中涂黑该区域（扩大 1.2 倍），避免重复检测
 - 适应同一图像中**不同亮度车牌共存**的场景
+- 最大检测到 41% 百分位，覆盖大部分光照场景
 
 ### 2.2 几何特征筛选
 
@@ -73,7 +108,17 @@ while current_percent <= 41%:
 
 #### 2.2.1 长宽比过滤
 
-电动自行车车牌标准尺寸为 140mm × 90mm，长宽比约为 1.56。考虑到拍摄角度和畸变，设置允许范围：
+**实现代码**（`image_process.py:379-388`）：
+
+```python
+aspect_ratio = width / height
+
+# 长宽比过滤 (关键：排除广告文字等干扰)
+if aspect_ratio < PLATE_ASPECT_RATIO_MIN or aspect_ratio > PLATE_ASPECT_RATIO_MAX:
+    continue
+```
+
+电动自行车车牌实际比例约为 1.56（140mm × 90mm），考虑到拍摄角度和透视畸变，设置允许范围：
 
 ```
 1.7 ≤ 长宽比 ≤ 2.3
@@ -83,33 +128,113 @@ while current_percent <= 41%:
 
 #### 2.2.2 角度过滤
 
+**实现代码**（`image_process.py:330-354`）：
+
+```python
+# 计算最小外接矩形的长边方向
+edge1 = np.linalg.norm(box[0] - box[1])
+edge2 = np.linalg.norm(box[1] - box[2])
+
+if edge1 >= edge2:
+    long_edge_vec = box[1] - box[0]
+    width, height = edge1, edge2
+else:
+    long_edge_vec = box[2] - box[1]
+    width, height = edge2, edge1
+
+# 计算长边与水平方向的夹角
+angle = np.degrees(np.arctan2(long_edge_vec[1], long_edge_vec[0]))
+
+# 角度偏离过滤
+angle_deviation = abs(angle)
+if angle_deviation > PLATE_ANGLE_MAX:  # 35°
+    continue
+```
+
 正常场景下车牌基本水平放置，设置最大允许偏离角度：
 
 ```
 |角度| ≤ 35°
 ```
 
-角度计算使用最小外接矩形的长边方向与水平方向的夹角。
-
 **鲁棒性体现**：
 - 排除背景中非水平放置的矩形区域
 - 允许一定倾斜，适应手持拍摄的抖动
 
-#### 2.2.3 面积过滤
+#### 2.2.3 矩形度过滤
 
+```python
+rectangularity = contour_area / bounding_box_area
+
+if rectangularity < PLATE_RECTANGULARITY_MIN:  # 0.5
+    continue
 ```
-图像面积 × 1% ≤ 车牌面积 ≤ 图像面积 × 20%
+
+车牌应该是规整的矩形，矩形度过低说明轮廓不规则。
+
+#### 2.2.4 面积过滤
+
+```python
+img_area * PLATE_AREA_MIN_RATIO ≤ 车牌面积 ≤ img_area * PLATE_AREA_MAX_RATIO
+# 1% ≤ 车牌面积 ≤ 20%
 ```
 
 排除过小（噪点）和过大（整个背景）的区域。
 
-### 2.3 轮廓检测流程
+### 2.3 候选区域合并（IoU 去重）
 
-```
-白色掩码 → findContours → minAreaRect → 几何筛选 → 候选车牌
+**实现代码**（`image_process.py:543-571`）：
+
+```python
+def _merge_overlapping(self, candidates, iou_threshold=0.3):
+    # 按分数排序
+    sorted_candidates = sorted(candidates, key=lambda x: x[2], reverse=True)
+    merged = []
+
+    while sorted_candidates:
+        best = sorted_candidates.pop(0)
+        merged.append(best)
+
+        remaining = []
+        for candidate in sorted_candidates:
+            # IoU < 0.3 认为是不同车牌，保留
+            if self._calculate_iou(best[1], candidate[1]) < iou_threshold:
+                remaining.append(candidate)
+        sorted_candidates = remaining
+
+    return merged
 ```
 
-使用 `cv2.findContours` 检测连通区域，`cv2.minAreaRect` 获取最小外接旋转矩形。
+**IoU (Intersection over Union)** 用于判断两个矩形是否为同一车牌：
+- IoU > 0.3：重叠度高，认为是同一车牌，保留评分最高的
+- IoU ≤ 0.3：重叠度低，认为是不同车牌，都保留
+
+**鲁棒性体现**：避免同一车牌被重复检测多次
+
+### 2.4 畸变校正
+
+**实现代码**（`image_process.py:634-692`）：
+
+```python
+# 计算旋转角度
+angle = np.degrees(np.arctan2(long_edge_vec[1], long_edge_vec[0]))
+
+# 旋转图像使车牌水平
+rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+rotated = cv2.warpAffine(image, rotation_matrix, (img_width, img_height))
+
+# 裁剪车牌区域
+plate_region = rotated[y1:y2, x1:x2]
+
+# 统一缩放到标准分辨率 (800×400)
+plate_region = cv2.resize(plate_region, (PLATE_STANDARD_WIDTH, PLATE_STANDARD_HEIGHT))
+```
+
+**处理流程**：
+1. 计算车牌旋转角度
+2. 仿射变换校正倾斜
+3. 裁剪车牌区域
+4. **统一缩放到 800×400**（使后续参数稳定）
 
 ---
 
@@ -117,57 +242,117 @@ while current_percent <= 41%:
 
 ### 3.1 预处理
 
-1. **灰度化**：BGR → GRAY
-2. **自适应二值化**：
-   ```python
-   cv2.adaptiveThreshold(gray, 255,
-       cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-       cv2.THRESH_BINARY_INV,  # 反转：白底黑字 → 黑底白字
-       blockSize=55, C=7)
-   ```
-   - 自适应阈值处理光照不均
-   - 反转使字符为白色（前景），便于轮廓检测
+**实现代码**（`char_segment.py:34-67`）：
+
+```python
+# 1. 灰度化
+if len(plate_image.shape) == 3:
+    gray = cv2.cvtColor(plate_image, cv2.COLOR_BGR2GRAY)
+
+# 2. 自适应二值化（反转）
+binary = cv2.adaptiveThreshold(
+    gray, 255,
+    cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+    cv2.THRESH_BINARY_INV,  # 白底黑字 → 黑底白字
+    blockSize=55,
+    C=7
+)
+```
+
+- **自适应阈值**：处理车牌光照不均（如一侧亮一侧暗）
+- **反转**：使字符为白色（前景），便于轮廓检测
 
 ### 3.2 形态学处理
 
+**实现代码**（`char_segment.py:149-154`）：
+
 ```python
 # 先开运算：去除噪点
-open_kernel = (5, 5)
+open_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
 binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, open_kernel)
 
 # 再闭运算：连接断裂笔画
-close_kernel = (7, 7)
+close_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
 binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, close_kernel)
 ```
 
 **处理顺序的考量**：
-- 先开运算去噪，避免闭运算时将噪点连接到字符
-- 后闭运算填补字符内部孔洞，连接断裂笔画
+- **先开运算**：去除孤立噪点，避免闭运算时将噪点连接到字符
+- **再闭运算**：填补字符内部孔洞，连接断裂笔画（如数字 8 的两个圆）
 
-### 3.3 边缘清除
+**参数说明**：
+- 开运算核 (7, 7)：去除 7×7 以下的噪点
+- 闭运算核 (7, 7)：连接 7 像素内的断裂
 
-车牌边框在二值化后可能与字符连接，形成一个大的连通域。解决方案：
+### 3.3 边缘清除（关键创新）
+
+**问题**：车牌边框在二值化后可能与字符连接，形成一个大的连通域，导致 `cv2.RETR_EXTERNAL` 只检测到边框而检测不到内部字符。
+
+**解决方案**（`char_segment.py:81-90`）：
 
 ```python
-# 涂黑图像边缘 30 像素
-binary[:30, :] = 0   # 上边
-binary[-30:, :] = 0  # 下边
-binary[:, :30] = 0   # 左边
-binary[:, -30:] = 0  # 右边
+# 涂黑图像边缘 30 像素，断开边框与字符的连接
+edge_width = 30
+binary_image[:edge_width, :] = 0   # 上边
+binary_image[-edge_width:, :] = 0  # 下边
+binary_image[:, :edge_width] = 0   # 左边
+binary_image[:, -edge_width:] = 0  # 右边
 ```
 
-断开边框与字符的连接后，使用 `cv2.RETR_EXTERNAL` 只检测最外层轮廓即可。
+**鲁棒性体现**：
+- 断开边框与字符的连接后，使用 `cv2.RETR_EXTERNAL` 只检测最外层轮廓即可
+- 避免复杂的轮廓层级处理（`cv2.RETR_TREE`）
+- 30 像素足够覆盖车牌边框宽度（车牌统一缩放到 800×400）
 
-### 3.4 字符筛选
+### 3.4 字符轮廓筛选
 
-| 筛选条件 | 范围 | 说明 |
-|----------|------|------|
-| 高度比例 | 20%-95% | 字符高度占车牌高度的比例 |
-| 宽高比 | 0.1-1.5 | 排除过宽或过窄的轮廓 |
-| 最小面积 | 30像素 | 排除噪点 |
-| Y 坐标 | 下部 2/3 | 只识别车牌号码，忽略上部地区名 |
+**实现代码**（`char_segment.py:99-127`）：
 
-**排序**：按 X 坐标从左到右排序
+| 筛选条件 | 配置参数 | 范围 | 说明 |
+|----------|---------|------|------|
+| 高度比例 | `CHAR_HEIGHT_RATIO_MIN/MAX` | 20%-95% | 字符高度占车牌高度的比例 |
+| 宽高比 | `CHAR_ASPECT_RATIO_MIN/MAX` | 0.1-1.5 | 排除过宽或过窄的轮廓 |
+| 最小面积 | `CHAR_MIN_AREA` | 30像素 | 排除噪点 |
+| 边缘距离 | `CHAR_EDGE_MARGIN` | 2像素 | 排除靠近边缘的轮廓 |
+| Y 坐标 | - | 下部 2/3 | 只识别车牌号码，忽略上部地区名 |
+
+**Y 坐标筛选代码**（`char_segment.py:126-127`）：
+```python
+# 过滤掉车牌上部1/3区域的字符（地区名如"广州"、"东莞"等）
+char_contours = [c for c in char_contours if (c[1] + c[3] / 2) > img_height / 3]
+```
+
+**排序**：按 X 坐标从左到右排序（`char_segment.py:130`）
+
+### 3.5 字符归一化
+
+**实现代码**（`char_segment.py:181-215`）：
+
+```python
+def _normalize_char(self, char_image):
+    h, w = char_image.shape[:2]
+
+    # 保持宽高比缩放
+    scale = min(TEMPLATE_WIDTH / w, TEMPLATE_HEIGHT / h) * CHAR_NORMALIZE_SCALE
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+
+    # 缩放
+    resized = cv2.resize(char_image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+    # 创建目标尺寸的画布（20×35），居中放置
+    result = np.zeros((TEMPLATE_HEIGHT, TEMPLATE_WIDTH), dtype=np.uint8)
+    x_offset = (TEMPLATE_WIDTH - new_w) // 2
+    y_offset = (TEMPLATE_HEIGHT - new_h) // 2
+    result[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = resized
+
+    return result
+```
+
+**处理逻辑**：
+1. 保持字符原始宽高比缩放（避免变形）
+2. 放在 20×35 黑色画布中心
+3. 周围留黑边，保证字符不贴边
 
 ---
 
@@ -175,52 +360,102 @@ binary[:, -30:] = 0  # 右边
 
 ### 4.1 模板库
 
-- **规格**：20×40 像素，二值图像
+- **规格**：20×35 像素，二值图像
 - **内容**：
   - 数字：0-9（10个）
   - 字母：A-Z（不含 I、O，24个）
-  - 汉字：广、佛、山、州、惠 等常见地区字
+  - 汉字：粤、广、佛、山、州、惠 等常见地区字
 
-### 4.2 匹配算法
-
-采用 **Jaccard 相似度**（基于 SSD）：
-
+**加载代码**（`match_ocr.py:35-68`）：
 ```python
-def calculate_similarity(char_img, template):
-    # 归一化到相同尺寸
-    char_resized = cv2.resize(char_img, (20, 40))
+def _load_templates(self):
+    for filename in os.listdir(self.templates_dir):
+        # 从文件名提取字符（去掉扩展名）
+        char_name = os.path.splitext(filename)[0]
 
-    # 二值化
-    _, char_bin = cv2.threshold(char_resized, 127, 255, cv2.THRESH_BINARY)
-    _, temp_bin = cv2.threshold(template, 127, 255, cv2.THRESH_BINARY)
+        # 读取模板图像
+        template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
 
-    # 计算交集和并集
-    intersection = np.sum((char_bin > 0) & (temp_bin > 0))
-    union = np.sum((char_bin > 0) | (temp_bin > 0))
+        # 确保模板为二值图像
+        _, template = cv2.threshold(template, 127, 255, cv2.THRESH_BINARY)
 
-    # Jaccard 相似度
-    if union == 0:
-        return 0
-    return intersection / union
+        # 调整模板大小到标准尺寸
+        template = cv2.resize(template, (TEMPLATE_WIDTH, TEMPLATE_HEIGHT))
+
+        self.templates[char_name] = template
 ```
 
-**选择 Jaccard 相似度的原因**：
-- 对字符大小变化鲁棒
+### 4.2 匹配算法（Jaccard + 像素相似度）
+
+**实现代码**（`match_ocr.py:85-130`）：
+
+```python
+def _match_template(self, char_image, template):
+    # 1. 计算前景重叠度（Jaccard 相似度）
+    char_fg = (char_image > 127).astype(np.uint8)
+    template_fg = (template > 127).astype(np.uint8)
+
+    intersection = np.sum(char_fg & template_fg)
+    union = np.sum(char_fg | template_fg)
+
+    if union == 0:
+        return 1.0  # 两张图都是全黑，完全匹配
+
+    jaccard = intersection / union
+
+    # 2. 在交集区域计算像素值差异
+    if intersection > 0:
+        intersection_mask = (char_fg & template_fg).astype(bool)
+        diff = cv2.absdiff(char_image[intersection_mask], template[intersection_mask])
+        pixel_sim = 1.0 - (np.mean(diff) / 255.0)
+    else:
+        pixel_sim = 0.0
+
+    # 综合评分：结构相似度 70% + 像素相似度 30%
+    similarity = 0.7 * jaccard + 0.3 * pixel_sim
+
+    return similarity
+```
+
+**算法优势**：
+- **Jaccard 相似度**：只关注前景像素（白色字符），不受背景影响
+- **像素差异**：在重叠区域进一步比较灰度值，提高精度
+- **权重分配**：结构相似度占主导（70%），像素细节辅助（30%）
+
+**相比纯 SSD 的优势**：
+- 对字符大小变化更鲁棒
+- 对位置偏移更宽容
 - 计算简单高效
-- 不受背景影响（只关注前景像素）
 
 ### 4.3 置信度阈值
 
+**实现代码**（`match_ocr.py:159-163`）：
+
 ```python
-OCR_MIN_CONFIDENCE = 0.62
+# 检查置信度阈值
+if best_score < OCR_MIN_CONFIDENCE:  # 0.62
+    return None, best_score
+
+return best_char, best_score
 ```
 
 - 相似度 ≥ 0.62：输出识别结果
-- 相似度 < 0.62：标记为 `?`（不确定）
+- 相似度 < 0.62：返回 `None`，在结果中标记为 `?`
+
+**车牌级过滤**（`visualize_result.py:95-100`）：
+```python
+# 过滤掉置信度不够的字符（问号）
+filtered_string = plate_string.replace('?', '')
+
+# 如果没有成功识别的字符，跳过
+if not filtered_string:
+    continue
+```
 
 **鲁棒性体现**：
 - 避免强行输出错误结果
-- 如果一个车牌所有字符都不确定，则不显示该车牌（进一步筛选假阳性）
+- 如果一个车牌所有字符都不确定（全是 `?`），则不显示该车牌
+- 进一步筛选假阳性，提高最终输出的准确率
 
 ---
 
@@ -228,36 +463,47 @@ OCR_MIN_CONFIDENCE = 0.62
 
 ### 5.1 车牌定位阶段
 
-| 设计 | 解决的问题 |
-|------|-----------|
-| whiteness = V - S | 综合亮度和饱和度，更准确判断白色 |
-| 梯度递增检测 | 适应不同亮度车牌共存 |
-| 区域排除机制 | 支持多车牌识别 |
-| 长宽比过滤 (1.7-2.3) | 排除广告文字干扰 |
-| 角度过滤 (±35°) | 排除非水平背景区域 |
+| 设计 | 实现位置 | 解决的问题 |
+|------|---------|-----------|
+| whiteness = V - S | `image_process.py:218` | 综合亮度和饱和度，更准确判断白色 |
+| 梯度递增检测 (1%→41%) | `image_process.py:402-469` | 适应不同亮度车牌，从亮到暗逐步检测 |
+| 区域排除机制 | `image_process.py:463-466` | 支持多车牌识别，避免重复检测 |
+| 长宽比过滤 (1.7-2.3) | `image_process.py:383-388` | 排除广告文字干扰 |
+| 角度过滤 (±35°) | `image_process.py:348-354` | 排除非水平背景区域 |
+| 矩形度过滤 (≥0.5) | `image_process.py:372-377` | 排除不规则轮廓 |
+| IoU 合并 (≤0.3) | `image_process.py:543-571` | 去除重复检测的同一车牌 |
+| 统一分辨率 (800×400) | `image_process.py:686-690` | 使后续处理参数稳定 |
 
 ### 5.2 字符分割阶段
 
-| 设计 | 解决的问题 |
-|------|-----------|
-| 自适应二值化 | 处理光照不均 |
-| 形态学处理 | 去噪 + 连接断裂笔画 |
-| 边缘清除 | 断开边框与字符的连接 |
-| 几何筛选 | 排除噪点和非字符区域 |
+| 设计 | 实现位置 | 解决的问题 |
+|------|---------|-----------|
+| 自适应二值化 | `char_segment.py:42-48` | 处理车牌光照不均 |
+| 先开后闭形态学 | `char_segment.py:150-154` | 去噪 + 连接断裂笔画 |
+| 边缘清除 (30像素) | `char_segment.py:81-87` | 断开边框与字符的连接 |
+| Y 坐标筛选 (下部2/3) | `char_segment.py:126-127` | 只识别车牌号码，忽略地区名 |
+| 保持宽高比归一化 | `char_segment.py:185-213` | 避免字符变形，提高识别准确率 |
 
 ### 5.3 字符识别阶段
 
-| 设计 | 解决的问题 |
-|------|-----------|
-| Jaccard 相似度 | 对形变鲁棒，计算高效 |
-| 置信度阈值 | 避免输出不确定结果 |
-| 无效车牌过滤 | 减少假阳性输出 |
+| 设计 | 实现位置 | 解决的问题 |
+|------|---------|-----------|
+| Jaccard + 像素相似度 | `match_ocr.py:96-128` | 对形变鲁棒，计算高效 |
+| 置信度阈值 (0.62) | `match_ocr.py:160` | 避免输出不确定结果 |
+| 车牌级过滤 | `visualize_result.py:95-100` | 减少假阳性输出 |
 
 ---
 
 ## 六、可配置参数
 
 系统提供大量可配置参数（位于 `config.py`），用户可根据实际场景调整：
+
+### 预处理参数
+```python
+GAUSSIAN_KERNEL_SIZE = (5, 5)    # 高斯滤波核大小
+CLAHE_CLIP_LIMIT = 2.0           # CLAHE 对比度限制
+CLAHE_TILE_SIZE = (8, 8)         # CLAHE 分块大小
+```
 
 ### 车牌定位参数
 ```python
@@ -267,16 +513,28 @@ ADAPTIVE_WHITE_MAX_PERCENT = 41   # 最大检测百分比
 PLATE_ASPECT_RATIO_MIN = 1.7      # 最小长宽比
 PLATE_ASPECT_RATIO_MAX = 2.3      # 最大长宽比
 PLATE_ANGLE_MAX = 35              # 最大允许角度（度）
+PLATE_RECTANGULARITY_MIN = 0.5    # 最小矩形度
+PLATE_AREA_MIN_RATIO = 0.01       # 最小面积比例
+PLATE_AREA_MAX_RATIO = 0.20       # 最大面积比例
+PLATE_STANDARD_WIDTH = 800        # 标准车牌宽度
+PLATE_STANDARD_HEIGHT = 400       # 标准车牌高度
 ```
 
 ### 字符分割参数
 ```python
+TEMPLATE_WIDTH = 20               # 字符模板宽度
+TEMPLATE_HEIGHT = 35              # 字符模板高度
 CHAR_BINARY_BLOCK_SIZE = 55       # 自适应二值化块大小
 CHAR_BINARY_C = 7                 # 自适应二值化常数
+CHAR_MORPH_OPEN_KERNEL = (7, 7)   # 开运算核大小
 CHAR_MORPH_CLOSE_KERNEL = (7, 7)  # 闭运算核大小
-CHAR_MORPH_OPEN_KERNEL = (5, 5)   # 开运算核大小
 CHAR_HEIGHT_RATIO_MIN = 0.2       # 字符最小高度比例
 CHAR_HEIGHT_RATIO_MAX = 0.95      # 字符最大高度比例
+CHAR_ASPECT_RATIO_MIN = 0.1       # 字符最小宽高比
+CHAR_ASPECT_RATIO_MAX = 1.5       # 字符最大宽高比
+CHAR_MIN_AREA = 30                # 字符最小面积
+CHAR_EDGE_MARGIN = 2              # 字符距边缘最小距离
+CHAR_NORMALIZE_SCALE = 1.0        # 字符归一化缩放比例
 ```
 
 ### 字符识别参数
@@ -284,23 +542,41 @@ CHAR_HEIGHT_RATIO_MAX = 0.95      # 字符最大高度比例
 OCR_MIN_CONFIDENCE = 0.62         # 最小置信度阈值
 ```
 
----
-
-## 七、扩展性
-
-### 支持其他颜色车牌
-
-当前系统针对**白色车牌**优化。如需支持蓝色、黄色、绿色车牌，可在 `_adaptive_white_segmentation` 方法中添加 H 通道（色相）过滤：
-
+### 并行处理参数
 ```python
-# 示例：检测蓝色车牌
-h, s, v = cv2.split(hsv)
-blue_mask = (h >= 100) & (h <= 130) & (s >= 50) & (v >= 50)
+PARALLEL_WORKERS = 10             # 并行处理进程数
 ```
 
-### 并行处理
+---
 
-系统支持多进程并行处理多张图片，参数 `PARALLEL_WORKERS` 控制进程数，默认为 10。
+## 七、性能优化
+
+### 7.1 多进程并行
+
+**实现代码**（`main.py:290-293`）：
+
+```python
+with ProcessPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
+    futures = {executor.submit(_process_single_image_wrapper, task): task[0]
+               for task in task_args}
+    for future in as_completed(futures):
+        results.append(future.result())
+```
+
+- **图像级并行**：每张图片串行处理，多张图片并行
+- **默认 10 进程**：可根据 CPU 核心数调整
+- **显著加速**：批量处理时间大幅缩短
+
+### 7.2 算法时间复杂度
+
+| 阶段 | 主要操作 | 复杂度 |
+|------|---------|--------|
+| 预处理 | 高斯滤波、CLAHE | O(n) |
+| 车牌定位 | 颜色分割、轮廓检测 | O(n) |
+| 字符分割 | 形态学、轮廓检测 | O(n) |
+| 字符识别 | 模板匹配（逐模板） | O(m×k) |
+
+其中 n 为图像像素数，m 为字符数，k 为模板数。
 
 ---
 
@@ -313,15 +589,81 @@ blue_mask = (h >= 100) & (h <= 130) & (s >= 50) & (v >= 50)
 准确率 = 完全正确识别的车牌数 / 总测试车牌数 × 100%
 ```
 
+**判定标准**：车牌号码完全一致（忽略前缀汉字）
+
 ### 字符级别准确率
 ```
 准确率 = 正确识别的字符数 / 总字符数 × 100%
 ```
 
+**计数方式**：逐字符比对，正确则计数 +1
+
 ### 测试分类
+
 建议按场景分类统计：
-1. 正常场景（车牌清晰、光照均匀）
-2. 倾斜场景（车牌有明显倾斜）
-3. 干扰场景（有广告文字等干扰）
-4. 多车牌场景（同一图像多个车牌）
-5. 极端光照（过亮/过暗/逆光）
+
+| 场景类别 | 说明 | 测试要点 |
+|---------|------|---------|
+| 正常场景 | 车牌清晰、光照均匀、无遮挡 | 基础识别能力 |
+| 倾斜场景 | 车牌有明显倾斜（10°-30°） | 畸变校正能力 |
+| 干扰场景 | 有广告文字、标志等干扰 | 长宽比过滤效果 |
+| 多车牌场景 | 同一图像多个车牌 | 区域排除式检测 |
+| 极端光照 | 过亮/过暗/逆光 | 梯度递增检测 |
+
+### 召回率与精确率
+
+```
+召回率 (Recall) = 检测到的车牌数 / 实际车牌数 × 100%
+精确率 (Precision) = 正确识别的车牌数 / 检测到的车牌数 × 100%
+F1 分数 = 2 × (精确率 × 召回率) / (精确率 + 召回率)
+```
+
+---
+
+## 九、扩展性
+
+### 9.1 支持其他颜色车牌
+
+当前系统针对**白色车牌**优化。如需支持蓝色、黄色、绿色车牌，可修改 `_adaptive_white_segmentation` 方法，添加 H 通道（色相）过滤：
+
+```python
+# 示例：检测蓝色车牌
+h, s, v = cv2.split(hsv)
+blue_mask = (h >= 100) & (h <= 130) & (s >= 50) & (v >= 50)
+```
+
+### 9.2 增加模板字符
+
+只需在 `resources/templates/` 目录下添加新的 20×35 二值图像，文件名为字符内容（如 `京.png`），系统会自动加载。
+
+### 9.3 调整检测策略
+
+通过修改 `config.py` 中的参数，可以适应不同应用场景：
+- **提高召回率**：增大 `ADAPTIVE_WHITE_MAX_PERCENT`、放宽长宽比范围
+- **提高精确率**：提高 `OCR_MIN_CONFIDENCE`、缩小长宽比范围
+
+---
+
+## 十、已知局限性
+
+1. **仅支持白色车牌**：需要修改颜色检测算法才能支持其他颜色
+2. **模板匹配限制**：字体变化大或污损严重时识别率下降
+3. **光照极限**：过度曝光或完全黑暗场景无法识别
+4. **遮挡处理**：当前未实现遮挡检测，被遮挡字符会识别为 `?`
+5. **近似字符混淆**：如 0 和 O、1 和 I（已从模板中移除 I、O）
+
+---
+
+## 十一、代码文件说明
+
+| 文件 | 行数 | 核心功能 |
+|------|------|---------|
+| `config.py` | ~98 | 所有可配置参数 |
+| `image_process.py` | ~733 | 预处理、车牌定位、畸变校正 |
+| `char_segment.py` | ~270 | 字符分割 |
+| `match_ocr.py` | ~250 | 模板匹配识别 |
+| `visualize_result.py` | ~222 | 结果可视化（支持中文） |
+| `main.py` | ~322 | 主程序、并行处理 |
+| `test_pipeline.py` | ~279 | 测试脚本、准确率统计 |
+
+**总代码量**：约 2200 行（不含注释）
