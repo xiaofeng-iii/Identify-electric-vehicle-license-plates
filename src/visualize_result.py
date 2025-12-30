@@ -13,12 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 def get_chinese_font(size=32):
     """
     获取支持中文的字体
-
-    Args:
-        size: 字体大小
-
-    Returns:
-        PIL ImageFont 对象
+    size: 字体大小
     """
     # Windows 常见中文字体路径
     font_paths = [
@@ -53,15 +48,12 @@ def put_chinese_text(img, text, position, font_size=32, color=(255, 255, 255)):
     """
     在OpenCV图像上绘制中文文本
 
-    Args:
+    参数:
         img: OpenCV BGR图像
         text: 要绘制的文本
         position: 文本位置 (x, y)
         font_size: 字体大小
         color: 文本颜色 (B, G, R)
-
-    Returns:
-        绘制文本后的图像
     """
     pil_img = cv2_to_pil(img)
     draw = ImageDraw.Draw(pil_img)
@@ -78,14 +70,11 @@ def draw_plate_result(image, candidates, plate_strings, output_path=None):
     """
     在原图上绘制车牌定位框和识别结果（不修改原图）
 
-    Args:
+    参数:
         image: 原始BGR图像
-        candidates: 车牌候选区域列表 [(rect, box, score), ...]
-        plate_strings: 车牌识别结果列表（与candidates对应）
+        candidates: 车牌候选区域列表
+        plate_strings: 车牌识别结果列表
         output_path: 输出图片路径，None则不保存
-
-    Returns:
-        标注后的图像（新图像，不修改原图）
     """
     # 创建原图的副本，不修改原图
     result_img = image.copy()
@@ -145,18 +134,15 @@ def draw_plate_result(image, candidates, plate_strings, output_path=None):
 def create_result_summary(image, candidates, plate_strings, recognition_details,
                          output_path=None):
     """
-    创建详细的结果展示图（包含原图、车牌区域、识别详情）
-    只显示识别成功的字符（过滤掉置信度不够的问号）
+    创建详细的结果展示图，包含原图、车牌区域、识别详情
+    只显示识别成功的字符，过滤掉置信度不够字符
 
-    Args:
+    参数:
         image: 原始BGR图像
         candidates: 车牌候选区域列表
         plate_strings: 车牌识别结果列表
         recognition_details: 识别详情列表 [[(char, confidence, bbox), ...], ...]
         output_path: 输出图片路径
-
-    Returns:
-        拼接后的图像
     """
     # 计算布局
     img_h, img_w = image.shape[:2]

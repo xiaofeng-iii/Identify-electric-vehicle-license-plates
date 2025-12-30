@@ -25,14 +25,7 @@ from config import DEBUG_DIR, RAW_IMAGES_DIR, RESULT_DIR, PARALLEL_WORKERS
 
 
 def display_result(original, plate_regions, window_name="车牌识别结果"):
-    """
-    显示原图和定位到的车牌区域
-
-    Args:
-        original: 原始BGR图像
-        plate_regions: 车牌区域图像列表
-        window_name: 窗口名称
-    """
+    """显示原图和定位到的车牌区域"""
     # 缩放原图以适应屏幕
     max_height = 600
     h, w = original.shape[:2]
@@ -55,16 +48,7 @@ def display_result(original, plate_regions, window_name="车牌识别结果"):
 
 
 def test_single_image(image_path, show_result=False):
-    """
-    测试单张图片的完整处理流程
-
-    Args:
-        image_path: 图片路径
-        show_result: 是否显示结果窗口（默认关闭）
-
-    Returns:
-        (成功标志, 识别到的车牌数量)
-    """
+    """测试单张图片的完整处理流程"""
     basename = os.path.splitext(os.path.basename(image_path))[0]
     output_dir = os.path.join(DEBUG_DIR, basename)
 
@@ -73,7 +57,7 @@ def test_single_image(image_path, show_result=False):
     print(f"输出目录: {output_dir}")
     print('='*60)
 
-    # ==================== 阶段1: 预处理 ====================
+    # 阶段1: 预处理
     print("\n[阶段1] 图像预处理")
     print("-" * 40)
 
@@ -86,7 +70,7 @@ def test_single_image(image_path, show_result=False):
     print(f"  原始图像尺寸: {original.shape}")
     print(f"  预处理后尺寸: {processed.shape}")
 
-    # ==================== 阶段2: 车牌定位 ====================
+    # 阶段2: 车牌定位 
     print("\n[阶段2] 车牌定位")
     print("-" * 40)
 
@@ -122,7 +106,7 @@ def test_single_image(image_path, show_result=False):
             cv2.imwrite(plate_path, plate_img)
             print(f"    已保存: {plate_path}")
 
-    # ==================== 阶段3: 字符分割 ====================
+    # 阶段3: 字符分割
     print("\n[阶段3] 字符分割")
     print("-" * 40)
 
@@ -145,7 +129,7 @@ def test_single_image(image_path, show_result=False):
 
         all_characters.append(characters)
 
-    # ==================== 阶段4: 字符识别 ====================
+    # 阶段4: 字符识别
     print("\n[阶段4] 字符识别")
     print("-" * 40)
 
@@ -175,7 +159,7 @@ def test_single_image(image_path, show_result=False):
         plate_strings.append(plate_string)
         all_recognition_details.append(results)
 
-    # ==================== 阶段5: 生成最终结果 ====================
+    # 阶段5: 生成最终结果
     print("\n[阶段5] 生成最终结果")
     print("-" * 40)
 
@@ -195,7 +179,7 @@ def test_single_image(image_path, show_result=False):
         else:
             print(f"  车牌 {i+1}: 无有效字符")
 
-    # ==================== 结果展示 ====================
+    # 结果展示
     if show_result and len(plate_regions) > 0:
         # 显示最终结果
         cv2.imshow("识别结果", result_img)
@@ -223,13 +207,7 @@ def _test_single_image_wrapper(args):
 
 
 def test_all_images_in_dir(dir_path=RAW_IMAGES_DIR, show_result=False):
-    """
-    测试目录下所有图片（并行处理）
-
-    Args:
-        dir_path: 图片目录路径
-        show_result: 是否显示结果窗口（默认关闭）
-    """
+    """测试目录下所有图片（并行处理）"""
     if not os.path.exists(dir_path):
         print(f"目录不存在: {dir_path}")
         return

@@ -17,13 +17,7 @@ class TemplateOCR:
     """模板匹配OCR类"""
 
     def __init__(self, templates_dir=TEMPLATES_DIR, debug=DEBUG_MODE):
-        """
-        初始化模板OCR
-
-        Args:
-            templates_dir: 模板目录路径
-            debug: 是否保存调试图片
-        """
+        """初始化模板OCR"""
         self.templates_dir = templates_dir
         self.debug = debug
         self.debug_images = {}
@@ -45,7 +39,7 @@ class TemplateOCR:
             if not filename.lower().endswith(extensions):
                 continue
 
-            # 从文件名提取字符（去掉扩展名）
+            # 从文件名提取字符
             char_name = os.path.splitext(filename)[0]
 
             # 读取模板图像
@@ -68,15 +62,7 @@ class TemplateOCR:
         print(f"已加载 {len(self.templates)} 个字符模板")
 
     def _preprocess_char(self, char_image):
-        """
-        预处理待识别的字符图像
-
-        Args:
-            char_image: 字符图像（可以是灰度或二值）
-
-        Returns:
-            预处理后的二值图像
-        """
+        """预处理待识别的字符图像"""
         # 确保是灰度图
         if len(char_image.shape) == 3:
             char_image = cv2.cvtColor(char_image, cv2.COLOR_BGR2GRAY)
@@ -92,13 +78,13 @@ class TemplateOCR:
 
     def _match_template(self, char_image, template):
         """
-        计算字符图像与模板的匹配度
+        计算字符图像与模板的匹配度。
 
-        Args:
+        参数：
             char_image: 预处理后的字符图像
             template: 模板图像
 
-        Returns:
+        返回：
             匹配度分数 (0~1, 越高越匹配)
         """
         # SSD改进版：结合Jaccard相似度和像素差异
@@ -132,12 +118,7 @@ class TemplateOCR:
     def recognize_char(self, char_image):
         """
         识别单个字符
-
-        Args:
-            char_image: 字符图像
-
-        Returns:
-            (识别结果字符, 置信度) 或 (None, 0) 如果无法识别
+        返回：(识别结果字符, 置信度) 或 (None, 0) 如果无法识别
         """
         if len(self.templates) == 0:
             print("错误: 没有加载任何模板")
@@ -164,13 +145,9 @@ class TemplateOCR:
 
     def recognize_plate(self, char_images):
         """
-        识别整个车牌的所有字符
+        识别整个车牌的所有字符。char_images: 字符图像列表，每个元素为 (char_image, bbox)
 
-        Args:
-            char_images: 字符图像列表，每个元素为 (char_image, bbox)
-
-        Returns:
-            识别结果列表，每个元素为 (字符, 置信度, bbox)
+        识别结果列表，每个元素为 (字符, 置信度, bbox)
         """
         results = []
 
@@ -181,15 +158,7 @@ class TemplateOCR:
         return results
 
     def get_plate_string(self, results):
-        """
-        从识别结果生成车牌字符串
-
-        Args:
-            results: recognize_plate 返回的结果列表
-
-        Returns:
-            车牌字符串
-        """
+        """从识别结果生成车牌字符串"""
         chars = []
         for char, confidence, bbox in results:
             if char is not None:
@@ -199,13 +168,7 @@ class TemplateOCR:
         return ''.join(chars)
 
     def save_debug_images(self, output_dir=DEBUG_DIR, prefix=""):
-        """
-        保存调试图片
-
-        Args:
-            output_dir: 输出目录
-            prefix: 文件名前缀
-        """
+        """保存调试图片"""
         if not self.debug:
             return
 
@@ -231,13 +194,13 @@ def recognize_characters(char_images, save_debug=True, output_dir=DEBUG_DIR, pre
     """
     便捷函数：识别字符列表
 
-    Args:
+    参数:
         char_images: 字符图像列表，每个元素为 (char_image, bbox)
         save_debug: 是否保存调试图片
         output_dir: 调试图片输出目录
         prefix: 文件名前缀
 
-    Returns:
+    返回:
         (车牌字符串, 识别结果详情列表, OCR对象)
     """
     ocr = TemplateOCR(debug=save_debug)

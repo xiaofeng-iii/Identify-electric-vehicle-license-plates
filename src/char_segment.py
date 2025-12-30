@@ -22,25 +22,12 @@ class CharacterSegmenter:
     """字符分割类：使用连通域分析分割车牌字符"""
 
     def __init__(self, debug=DEBUG_MODE):
-        """
-        初始化字符分割器
-
-        Args:
-            debug: 是否保存调试图片
-        """
+        """初始化字符分割器。debug: 是否保存调试图片"""
         self.debug = debug
         self.debug_images = {}
 
     def preprocess_plate(self, plate_image):
-        """
-        车牌图像预处理：灰度化 + 二值化
-
-        Args:
-            plate_image: BGR格式的车牌图像
-
-        Returns:
-            二值化图像
-        """
+        """车牌图像预处理：灰度化 + 二值化"""
         # 灰度化
         if len(plate_image.shape) == 3:
             gray = cv2.cvtColor(plate_image, cv2.COLOR_BGR2GRAY)
@@ -50,8 +37,7 @@ class CharacterSegmenter:
         if self.debug:
             self.debug_images['char_gray'] = gray.copy()
 
-        # 自适应二值化（处理光照不均）
-        # 白底黑字车牌：字符是黑色，背景是白色
+        # 自适应二值化
         thresh_type = cv2.THRESH_BINARY_INV if CHAR_BINARY_INVERT else cv2.THRESH_BINARY
         binary = cv2.adaptiveThreshold(
             gray, 255,
@@ -69,12 +55,6 @@ class CharacterSegmenter:
     def find_char_contours(self, binary_image):
         """
         使用连通域分析找到字符轮廓
-
-        Args:
-            binary_image: 二值化图像
-
-        Returns:
-            字符轮廓列表，按x坐标排序
         """
         img_height, img_width = binary_image.shape[:2]
 
@@ -133,15 +113,11 @@ class CharacterSegmenter:
 
     def extract_characters(self, plate_image):
         """
-        从车牌图像中提取字符
-
-        Args:
-            plate_image: BGR格式的车牌图像
-
-        Returns:
-            字符图像列表，每个元素为 (char_image, bbox)
-            - char_image: 字符图像
-            - bbox: 边界框 (x, y, w, h)
+        从车牌图像中提取字符。
+        返回字符图像列表。
+        每个元素为 (char_image, bbox)
+        char_image: 字符图像
+        bbox: 边界框 (x, y, w, h)
         """
         # 预处理
         binary = self.preprocess_plate(plate_image)
@@ -181,15 +157,7 @@ class CharacterSegmenter:
     def _normalize_char(self, char_image, target_width=TEMPLATE_WIDTH,
                         target_height=TEMPLATE_HEIGHT):
         """
-        将字符图像归一化到标准尺寸
-
-        Args:
-            char_image: 原始字符图像
-            target_width: 目标宽度
-            target_height: 目标高度
-
-        Returns:
-            归一化后的字符图像
+        将字符图像归一化到标准分辨率
         """
         h, w = char_image.shape[:2]
 
@@ -211,14 +179,7 @@ class CharacterSegmenter:
         return result
 
     def save_debug_images(self, output_dir=DEBUG_DIR, prefix="", plate_index=None):
-        """
-        保存调试图片
-
-        Args:
-            output_dir: 输出目录
-            prefix: 文件名前缀
-            plate_index: 车牌索引（用于区分多车牌）
-        """
+        """保存调试图片"""
         if not self.debug:
             return
 

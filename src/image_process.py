@@ -79,15 +79,7 @@ class ImagePreprocessor:
         return equalized
 
     def preprocess(self, image):
-        """
-        完整预处理流程：灰度化 -> 高斯滤波 -> 直方图均衡化
-
-        Args:
-            image: BGR格式的原始图像
-
-        Returns:
-            预处理后的灰度图像
-        """
+        # 完整预处理流程：灰度化 -> 高斯滤波 -> 直方图均衡化
         # 1. 灰度化
         gray = self.to_grayscale(image)
 
@@ -100,13 +92,7 @@ class ImagePreprocessor:
         return enhanced
 
     def save_debug_images(self, output_dir=DEBUG_DIR, prefix=""):
-        """
-        保存所有调试图片
-
-        Args:
-            output_dir: 输出目录（会在其下创建以prefix命名的子文件夹）
-            prefix: 图片名称，用于创建子文件夹
-        """
+        # 保存调试图片
         if not self.debug:
             return
 
@@ -133,14 +119,9 @@ class ImagePreprocessor:
 def preprocess_image(image_path, save_debug=True, output_dir=DEBUG_DIR):
     """
     便捷函数：对单张图片进行预处理
-
-    Args:
-        image_path: 图像文件路径
-        save_debug: 是否保存调试图片
-        output_dir: 调试图片输出目录
-
-    Returns:
-        (原始图像, 预处理后图像) 元组，失败返回 (None, None)
+    image_path: 图像文件路径
+    save_debug: 是否保存调试图片
+    output_dir: 调试图片输出目录
     """
     preprocessor = ImagePreprocessor(debug=save_debug)
 
@@ -162,15 +143,10 @@ def preprocess_image(image_path, save_debug=True, output_dir=DEBUG_DIR):
 
 
 class PlateLocator:
-    """车牌定位类：使用颜色和边缘两种方法定位车牌"""
+    """车牌定位类：使用颜色方法定位车牌"""
 
     def __init__(self, debug=DEBUG_MODE):
-        """
-        初始化车牌定位器
-
-        Args:
-            debug: 是否保存调试图片
-        """
+        """初始化车牌定位器"""
         self.debug = debug
         self.debug_images = {}
 
@@ -180,13 +156,6 @@ class PlateLocator:
 
         使用 whiteness = V - S 作为白色程度指标
         V高且S低的区域更接近白色
-
-        Args:
-            image: BGR格式图像
-            top_percent: 选取最白的百分比，None则使用配置值
-
-        Returns:
-            二值化掩码图像
         """
         if top_percent is None:
             top_percent = ADAPTIVE_WHITE_TOP_PERCENT
@@ -194,7 +163,7 @@ class PlateLocator:
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         h, s, v = cv2.split(hsv)
 
-        # 计算白色程度：whiteness = V - S（亮度高且饱和度低的更"白"）
+        # 计算白色程度：whiteness = V - S，亮度高且饱和度低的更"白"
         whiteness = v.astype(np.int16) - s.astype(np.int16)
 
         # 计算白色程度阈值：取 top_percent 对应的百分位数
@@ -207,7 +176,7 @@ class PlateLocator:
         mask = (white_mask * 255).astype(np.uint8)
 
         if self.debug:
-            # 保存白色程度图用于调试（归一化到0-255显示）
+            # 保存白色程度图用于调试，归一化到0-255显示
             whiteness_normalized = ((whiteness - whiteness.min()) /
                                    (whiteness.max() - whiteness.min() + 1) * 255).astype(np.uint8)
             self.debug_images['adaptive_white_v_channel'] = whiteness_normalized
@@ -217,15 +186,7 @@ class PlateLocator:
         return mask
 
     def color_locate(self, image):
-        """
-        颜色定位法：通过HSV颜色空间定位车牌
-
-        Args:
-            image: BGR格式原始图像
-
-        Returns:
-            二值化掩码
-        """
+        """颜色定位法：通过HSV颜色空间定位车牌"""
         # 白色检测：使用自适应方法
         white_mask = self._adaptive_white_segmentation(image)
 
@@ -240,18 +201,17 @@ class PlateLocator:
         """
         筛选候选区域：根据长宽比、面积、矩形度和角度过滤轮廓
 
-        Args:
-            contours: 轮廓列表
+        参数:
             image_shape: 图像尺寸 (height, width, ...)
             debug_filter: 是否输出过滤调试信息
             max_angle: 最大允许偏离角度，None则使用配置值
-            collect_debug_info: 传入列表则收集筛选信息用于后续统一绘制
+            collect_debug_info: 传入列表收集筛选信息
 
-        Returns:
+        返回:
             符合条件的候选矩形列表，每个元素为 (rect, box, score)
-            - rect: 最小外接矩形 (center, size, angle)
+            - rect: 最小外接矩形 ，包含center, size, angle
             - box: 四个角点坐标
-            - score: 评分 (越高越可能是车牌)
+            - score: 评分
         """
         if max_angle is None:
             max_angle = PLATE_ANGLE_MAX
@@ -355,15 +315,7 @@ class PlateLocator:
         return candidates
 
     def find_contours(self, binary_image):
-        """
-        查找轮廓
-
-        Args:
-            binary_image: 二值化图像
-
-        Returns:
-            轮廓列表
-        """
+        """查找轮廓"""
         contours, _ = cv2.findContours(
             binary_image,
             cv2.RETR_EXTERNAL,
@@ -374,24 +326,17 @@ class PlateLocator:
     def locate(self, image):
         """
         定位车牌：使用颜色定位方法，支持自适应调整
-
-        如果初始参数未检出车牌，会逐步增加白色检测百分比直到找到车牌
-
-        Args:
-            image: BGR格式原始图像
-
-        Returns:
-            候选车牌区域列表，每个元素为 (rect, box, score)
+        从配置的值开始，逐步增加白色检测百分比
         """
         img_shape = image.shape
 
-        # 累积筛选调试信息（用于最后统一绘制）
+        # 累积筛选调试信息，用于最后统一绘制
         all_filter_debug_info = [] if self.debug else None
 
-        # 颜色定位 - 使用自适应白色检测，区域排除式多亮度检测
+        # 颜色定位 - 区域排除式多亮度检测
         print("  [颜色定位 - 区域排除式检测]")
 
-        # 初始化排除掩码（全白表示所有区域可检测）
+        # 初始化排除掩码
         img_h, img_w = image.shape[:2]
         exclusion_mask = np.ones((img_h, img_w), dtype=np.uint8) * 255
 
@@ -405,7 +350,7 @@ class PlateLocator:
             # 使用当前百分比进行白色分割
             color_mask = self._adaptive_white_segmentation(image, top_percent=current_percent)
 
-            # 应用排除掩码（已检测区域变黑，不会产生轮廓）
+            # 应用排除掩码，将已检测区域变黑
             color_mask = cv2.bitwise_and(color_mask, exclusion_mask)
 
             color_contours = self.find_contours(color_mask)
@@ -478,16 +423,7 @@ class PlateLocator:
         return verified_candidates
 
     def _merge_overlapping(self, candidates, iou_threshold=0.3):
-        """
-        合并重叠的候选区域
-
-        Args:
-            candidates: 候选区域列表
-            iou_threshold: IoU阈值，超过此值认为重叠
-
-        Returns:
-            合并后的候选区域列表
-        """
+        """合并重叠的候选区域"""
         if len(candidates) <= 1:
             return candidates
 
@@ -509,13 +445,7 @@ class PlateLocator:
 
     def _calculate_iou(self, box1, box2):
         """
-        计算两个旋转矩形的IoU
-
-        Args:
-            box1, box2: 四角点坐标数组
-
-        Returns:
-            IoU值
+        计算两个矩形的IoU，用于查找两个重叠矩形是否是同一个车牌
         """
         # 使用cv2.rotatedRectangleIntersection计算交集
         rect1 = cv2.minAreaRect(box1)
@@ -540,17 +470,7 @@ class PlateLocator:
         return intersection_area / union_area
 
     def _expand_box(self, box, scale=1.2, img_shape=None):
-        """
-        扩大边界框，用于排除检测区域时留出边距
-
-        Args:
-            box: 四角点坐标 np.array
-            scale: 扩大比例 (1.2 = 扩大20%)
-            img_shape: 图像尺寸，用于裁剪越界部分
-
-        Returns:
-            扩大后的四角点坐标
-        """
+        """扩大边界框，用于排除检测区域时留出边距"""
         # 计算中心点
         center = np.mean(box, axis=0)
 
@@ -569,18 +489,7 @@ class PlateLocator:
         return expanded
 
     def extract_plate_region(self, image, rect, box, padding=5):
-        """
-        提取车牌区域图像，使用最小旋转角度矫正到水平
-
-        Args:
-            image: 原始图像
-            rect: 最小外接矩形 (center, size, angle)
-            box: 四个角点坐标
-            padding: 边缘填充像素
-
-        Returns:
-            提取的车牌区域图像（已矫正为水平）
-        """
+        """提取车牌区域图像，使用最小旋转角度矫正到水平，并统一输出分辨率"""
         center = rect[0]
 
         # 从 box 计算长边角度（与 filter_candidates 中的逻辑一致）
@@ -601,7 +510,7 @@ class PlateLocator:
         width = int(width + padding * 2)
         height = int(height + padding * 2)
 
-        # 旋转图像使车牌水平（旋转 -angle 度）
+        # 旋转图像使车牌水平
         rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
 
         img_height, img_width = image.shape[:2]
@@ -618,7 +527,7 @@ class PlateLocator:
 
         plate_region = rotated[y1:y2, x1:x2]
 
-        # 统一缩放到标准尺寸，使后续处理参数更稳定
+        # 统一缩放到标准分辨率，使后续处理参数更稳定
         if plate_region.size > 0:
             plate_region = cv2.resize(
                 plate_region,
@@ -629,13 +538,7 @@ class PlateLocator:
         return plate_region
 
     def save_debug_images(self, output_dir=DEBUG_DIR, prefix=""):
-        """
-        保存调试图片
-
-        Args:
-            output_dir: 输出目录（会在其下创建以prefix命名的子文件夹）
-            prefix: 图片名称，用于创建子文件夹
-        """
+        """保存调试图片"""
         if not self.debug:
             return
 
@@ -660,18 +563,7 @@ class PlateLocator:
 
 
 def locate_plates(image, save_debug=True, output_dir=DEBUG_DIR, prefix=""):
-    """
-    便捷函数：定位图像中的车牌
-
-    Args:
-        image: BGR格式图像
-        save_debug: 是否保存调试图片
-        output_dir: 调试图片输出目录
-        prefix: 文件名前缀
-
-    Returns:
-        候选车牌区域列表
-    """
+    """便捷函数：定位图像中的车牌"""
     locator = PlateLocator(debug=save_debug)
     candidates = locator.locate(image)
 

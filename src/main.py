@@ -49,14 +49,9 @@ def scan_images(directory):
 def process_single_image(image_path, enable_debug, verbose):
     """
     处理单张图片
-
-    Args:
-        image_path: 图片路径
-        enable_debug: 是否保存调试图片（强制设置DEBUG_MODE）
-        verbose: 是否显示详细输出
-
-    Returns:
-        (plate_strings, candidate_count)
+    image_path: 图片路径
+    enable_debug: 是否保存调试图片（强制设置DEBUG_MODE）
+    verbose: 是否显示详细输出
     """
     # 强制设置 DEBUG_MODE，命令行参数完全控制
     import config
@@ -102,7 +97,7 @@ def process_single_image(image_path, enable_debug, verbose):
     plate_regions = []
     for i, (rect, box, score) in enumerate(candidates):
         if verbose:
-            # 计算真实角度（长边与水平方向的夹角）
+            # 计算角度，长边与水平方向的夹角
             edge1 = np.linalg.norm(box[0] - box[1])
             edge2 = np.linalg.norm(box[1] - box[2])
             if edge1 >= edge2:
@@ -200,9 +195,7 @@ def process_single_image(image_path, enable_debug, verbose):
 
 
 def _process_single_image_wrapper(args):
-    """
-    包装函数，用于多进程调用
-    """
+    """包装函数，用于多进程调用"""
     img_path, enable_debug, verbose = args
     try:
         plates, count = process_single_image(img_path, enable_debug, verbose)
@@ -254,7 +247,7 @@ def main():
     total_plates = 0
 
     if args.serial or args.verbose:
-        # 串行处理（verbose 模式需要串行以保证输出顺序）
+        # 串行处理，verbose 模式需要串行以保证输出顺序
         for i, img_path in enumerate(images, 1):
             basename = os.path.basename(img_path)
 
