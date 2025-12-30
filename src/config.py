@@ -93,4 +93,4 @@ OCR_MIN_CONFIDENCE = 0.62
 DEBUG_MODE = False  # 默认关闭，由 main.py 根据 --debug 参数动态控制
 
 # ==================== 并行处理参数 ====================
-PARALLEL_WORKERS = 10  # 并行处理图片的进程数
+PARALLEL_WORKERS = 5  # 并行处理图片的进程数
