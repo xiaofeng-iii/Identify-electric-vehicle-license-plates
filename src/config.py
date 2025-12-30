@@ -60,7 +60,7 @@ PLATE_STANDARD_HEIGHT = 400   # 标准高度（2:1 比例）
 # ==================== 字符分割参数 ====================
 # 标准字符模板大小
 TEMPLATE_WIDTH = 20
-TEMPLATE_HEIGHT = 40
+TEMPLATE_HEIGHT = 35
 
 # 二值化参数
 CHAR_BINARY_BLOCK_SIZE = 55       # 自适应二值化块大小（必须为奇数）
