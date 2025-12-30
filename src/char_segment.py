@@ -131,13 +131,12 @@ class CharacterSegmenter:
 
         return char_contours
 
-    def extract_characters(self, plate_image, normalize=True):
+    def extract_characters(self, plate_image):
         """
         从车牌图像中提取字符
 
         Args:
             plate_image: BGR格式的车牌图像
-            normalize: 是否归一化到标准尺寸
 
         Returns:
             字符图像列表，每个元素为 (char_image, bbox)
@@ -159,16 +158,13 @@ class CharacterSegmenter:
         # 找字符轮廓
         char_contours = self.find_char_contours(binary)
 
-        # 提取字符图像
+        # 提取字符图像并归一化到标准尺寸
         characters = []
         for x, y, w, h, contour in char_contours:
             # 提取字符区域
             char_img = binary[y:y+h, x:x+w]
-
-            # 归一化到标准尺寸
-            if normalize:
-                char_img = self._normalize_char(char_img)
-
+            # 归一化
+            char_img = self._normalize_char(char_img)
             characters.append((char_img, (x, y, w, h)))
 
         # 调试：绘制分割结果

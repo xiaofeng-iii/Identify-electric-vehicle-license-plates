@@ -91,7 +91,7 @@ def process_single_image(image_path, enable_debug, verbose):
 
     with suppress_stdout() if not verbose else open(os.devnull):
         candidates, locator = locate_plates(
-            original, method='combined',
+            original,
             save_debug=enable_debug, prefix=basename
         )
 

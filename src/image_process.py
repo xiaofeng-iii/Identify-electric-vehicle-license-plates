@@ -55,57 +55,25 @@ class ImagePreprocessor:
         return image
 
     def to_grayscale(self, image):
-        """
-        灰度化：将BGR图像转换为灰度图
-
-        Args:
-            image: BGR格式的图像
-
-        Returns:
-            灰度图像
-        """
+        # 灰度化：将BGR图像转换为灰度图
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         self.debug_images['grayscale'] = gray.copy()
         return gray
 
-    def gaussian_blur(self, image, kernel_size=GAUSSIAN_KERNEL_SIZE, sigma=GAUSSIAN_SIGMA):
-        """
-        高斯滤波：去除图像噪声
-
-        Args:
-            image: 输入图像（灰度或彩色）
-            kernel_size: 高斯核大小，必须为奇数，如(5,5)
-            sigma: 高斯核标准差，0表示自动计算
-
-        Returns:
-            滤波后的图像
-        """
-        blurred = cv2.GaussianBlur(image, kernel_size, sigma)
+    def gaussian_blur(self, image):
+        # 高斯滤波：去除图像噪声
+        blurred = cv2.GaussianBlur(image, GAUSSIAN_KERNEL_SIZE, GAUSSIAN_SIGMA)
         self.debug_images['gaussian_blur'] = blurred.copy()
         return blurred
 
-    def histogram_equalization(self, image, use_clahe=True):
-        """
-        直方图均衡化：增强图像对比度
-
-        Args:
-            image: 灰度图像
-            use_clahe: 是否使用CLAHE（自适应直方图均衡化）
-
-        Returns:
-            均衡化后的图像
-        """
-        if use_clahe:
-            # CLAHE: 对比度受限自适应直方图均衡化
-            # 优点：避免过度增强噪声，保留局部细节
-            clahe = cv2.createCLAHE(
-                clipLimit=CLAHE_CLIP_LIMIT,
-                tileGridSize=CLAHE_TILE_SIZE
-            )
-            equalized = clahe.apply(image)
-        else:
-            # 普通直方图均衡化
-            equalized = cv2.equalizeHist(image)
+    def histogram_equalization(self, image):
+        # 直方图均衡化：增强图像对比度，使用CLAHE（自适应直方图均衡化）
+        # CLAHE: 对比度受限自适应直方图均衡化，避免过度增强噪声，保留局部细节
+        clahe = cv2.createCLAHE(
+            clipLimit=CLAHE_CLIP_LIMIT,
+            tileGridSize=CLAHE_TILE_SIZE
+        )
+        equalized = clahe.apply(image)
 
         self.debug_images['histogram_equalization(final)'] = equalized.copy()
         return equalized
@@ -403,18 +371,14 @@ class PlateLocator:
         )
         return contours
 
-    def locate(self, image, method='combined'):
+    def locate(self, image):
         """
-        定位车牌：综合使用颜色和边缘方法，支持自适应调整
+        定位车牌：使用颜色定位方法，支持自适应调整
 
         如果初始参数未检出车牌，会逐步增加白色检测百分比直到找到车牌
 
         Args:
             image: BGR格式原始图像
-            method: 定位方法
-                - 'color': 仅使用颜色定位
-                - 'edge': 仅使用边缘定位
-                - 'combined': 综合使用两种方法（默认）
 
         Returns:
             候选车牌区域列表，每个元素为 (rect, box, score)
@@ -424,58 +388,54 @@ class PlateLocator:
         # 累积筛选调试信息（用于最后统一绘制）
         all_filter_debug_info = [] if self.debug else None
 
-        if method in ('color', 'combined'):
-            # 颜色定位 - 使用自适应白色检测，区域排除式多亮度检测
-            print("  [颜色定位 - 区域排除式检测]")
+        # 颜色定位 - 使用自适应白色检测，区域排除式多亮度检测
+        print("  [颜色定位 - 区域排除式检测]")
 
-            # 初始化排除掩码（全白表示所有区域可检测）
-            img_h, img_w = image.shape[:2]
-            exclusion_mask = np.ones((img_h, img_w), dtype=np.uint8) * 255
+        # 初始化排除掩码（全白表示所有区域可检测）
+        img_h, img_w = image.shape[:2]
+        exclusion_mask = np.ones((img_h, img_w), dtype=np.uint8) * 255
 
-            # 从配置的初始值开始尝试
-            current_percent = ADAPTIVE_WHITE_TOP_PERCENT
-            all_candidates = []
+        # 从配置的初始值开始尝试
+        current_percent = ADAPTIVE_WHITE_TOP_PERCENT
+        all_candidates = []
 
-            while current_percent <= ADAPTIVE_WHITE_MAX_PERCENT:
-                print(f"    尝试白色百分比: {current_percent}%")
+        while current_percent <= ADAPTIVE_WHITE_MAX_PERCENT:
+            print(f"    尝试白色百分比: {current_percent}%")
 
-                # 使用当前百分比进行白色分割
-                color_mask = self._adaptive_white_segmentation(image, top_percent=current_percent)
+            # 使用当前百分比进行白色分割
+            color_mask = self._adaptive_white_segmentation(image, top_percent=current_percent)
 
-                # 应用排除掩码（已检测区域变黑，不会产生轮廓）
-                color_mask = cv2.bitwise_and(color_mask, exclusion_mask)
+            # 应用排除掩码（已检测区域变黑，不会产生轮廓）
+            color_mask = cv2.bitwise_and(color_mask, exclusion_mask)
 
-                color_contours = self.find_contours(color_mask)
-                print(f"    找到 {len(color_contours)} 个候选轮廓")
+            color_contours = self.find_contours(color_mask)
+            print(f"    找到 {len(color_contours)} 个候选轮廓")
 
-                color_candidates = self.filter_candidates(
-                    color_contours, img_shape, debug_filter=False,
-                    collect_debug_info=all_filter_debug_info
-                )
+            color_candidates = self.filter_candidates(
+                color_contours, img_shape, debug_filter=False,
+                collect_debug_info=all_filter_debug_info
+            )
 
-                if len(color_candidates) > 0:
-                    print(f"    在 {current_percent}% 找到 {len(color_candidates)} 个候选车牌")
-                    all_candidates.extend(color_candidates)
+            if len(color_candidates) > 0:
+                print(f"    在 {current_percent}% 找到 {len(color_candidates)} 个候选车牌")
+                all_candidates.extend(color_candidates)
 
-                    # 将检测到的区域从排除掩码中移除（涂黑）
-                    for rect, box, score in color_candidates:
-                        expanded_box = self._expand_box(box, scale=1.2, img_shape=img_shape)
-                        cv2.fillPoly(exclusion_mask, [expanded_box], 0)
+                # 将检测到的区域从排除掩码中移除（涂黑）
+                for rect, box, score in color_candidates:
+                    expanded_box = self._expand_box(box, scale=1.2, img_shape=img_shape)
+                    cv2.fillPoly(exclusion_mask, [expanded_box], 0)
 
-                # 无论是否找到，都继续递增亮度
-                current_percent += ADAPTIVE_WHITE_STEP
+            # 无论是否找到，都继续递增亮度
+            current_percent += ADAPTIVE_WHITE_STEP
 
-            if len(all_candidates) == 0:
-                print(f"    警告: 达到最大百分比 {ADAPTIVE_WHITE_MAX_PERCENT}% 仍未找到车牌")
-            else:
-                print(f"  总共检测到 {len(all_candidates)} 个候选车牌")
-
-            if self.debug:
-                self.debug_images['locate_color_result'] = color_mask.copy()
-                self.debug_images['locate_exclusion_mask'] = exclusion_mask.copy()
-
+        if len(all_candidates) == 0:
+            print(f"    警告: 达到最大百分比 {ADAPTIVE_WHITE_MAX_PERCENT}% 仍未找到车牌")
         else:
-            all_candidates = []
+            print(f"  总共检测到 {len(all_candidates)} 个候选车牌")
+
+        if self.debug:
+            self.debug_images['locate_color_result'] = color_mask.copy()
+            self.debug_images['locate_exclusion_mask'] = exclusion_mask.copy()
 
         # 合并重叠候选区域
         merged_candidates = self._merge_overlapping(all_candidates)
@@ -699,13 +659,12 @@ class PlateLocator:
         self.debug_images.clear()
 
 
-def locate_plates(image, method='combined', save_debug=True, output_dir=DEBUG_DIR, prefix=""):
+def locate_plates(image, save_debug=True, output_dir=DEBUG_DIR, prefix=""):
     """
     便捷函数：定位图像中的车牌
 
     Args:
         image: BGR格式图像
-        method: 定位方法 ('color', 'edge', 'combined')
         save_debug: 是否保存调试图片
         output_dir: 调试图片输出目录
         prefix: 文件名前缀
@@ -714,7 +673,7 @@ def locate_plates(image, method='combined', save_debug=True, output_dir=DEBUG_DI
         候选车牌区域列表
     """
     locator = PlateLocator(debug=save_debug)
-    candidates = locator.locate(image, method)
+    candidates = locator.locate(image)
 
     if save_debug:
         locator.save_debug_images(output_dir, prefix)

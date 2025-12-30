@@ -92,7 +92,6 @@ def test_single_image(image_path, show_result=False):
 
     candidates, locator = locate_plates(
         original,
-        method='combined',
         save_debug=True,
         prefix=basename
     )
