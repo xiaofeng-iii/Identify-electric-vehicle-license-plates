@@ -109,7 +109,7 @@ def preprocess(self, image):
 
 ## 三、车牌定位（核心创新点）
 
-### 6.1 基于 HSV 颜色空间的自适应白色检测
+### 3.1 基于 HSV 颜色空间的自适应白色检测
 
 电动自行车车牌以白底黑字为主。传统固定阈值方法难以适应不同光照条件，本系统采用**自适应白色检测算法**。
 
@@ -125,7 +125,7 @@ def preprocess(self, image):
 whiteness = V - S
 ```
 
-**实现代码**（`image_process.py:217-237`）：
+**实现代码**（`image_process.py:163-177`）：
 ```python
 hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 h, s, v = cv2.split(hsv)
@@ -149,7 +149,7 @@ mask = (white_mask * 255).astype(np.uint8)
 
 不同车牌在同一图像中可能具有不同的亮度（如逆光、阴影）。为解决多车牌检测问题，系统采用**梯度递增 + 区域排除式检测**：
 
-**实现流程**（`image_process.py:402-469`）：
+**实现流程**（`image_process.py:326-374`）：
 
 ```python
 # 初始化排除掩码（全白表示所有区域可检测）
@@ -187,13 +187,13 @@ while current_percent <= ADAPTIVE_WHITE_MAX_PERCENT:  # 最大 41%
 - 适应同一图像中**不同亮度车牌共存**的场景
 - 最大检测到 41% 百分位，覆盖大部分光照场景
 
-### 6.2 几何特征筛选
+### 3.2 几何特征筛选
 
 车牌具有明确的几何特征，通过几何筛选可有效排除误检区域。
 
 #### 3.2.1 长宽比过滤
 
-**实现代码**（`image_process.py:379-388`）：
+**实现代码**（`image_process.py:285-291`）：
 
 ```python
 aspect_ratio = width / height
@@ -213,7 +213,7 @@ if aspect_ratio < PLATE_ASPECT_RATIO_MIN or aspect_ratio > PLATE_ASPECT_RATIO_MA
 
 #### 3.2.2 角度过滤
 
-**实现代码**（`image_process.py:330-354`）：
+**实现代码**（`image_process.py:245-263`）：
 
 ```python
 # 计算最小外接矩形的长边方向
@@ -248,6 +248,8 @@ if angle_deviation > PLATE_ANGLE_MAX:  # 35°
 
 #### 3.2.3 矩形度过滤
 
+**实现代码**（`image_process.py:272-282`）：
+
 ```python
 rectangularity = contour_area / bounding_box_area
 
@@ -266,9 +268,9 @@ img_area * PLATE_AREA_MIN_RATIO ≤ 车牌面积 ≤ img_area * PLATE_AREA_MAX_R
 
 排除过小（噪点）和过大（整个背景）的区域。
 
-### 6.3 候选区域合并（IoU 去重）
+### 3.3 候选区域合并（IoU 去重）
 
-**实现代码**（`image_process.py:543-571`）：
+**实现代码**（`image_process.py:425-444`）：
 
 ```python
 def _merge_overlapping(self, candidates, iou_threshold=0.3):
@@ -296,9 +298,9 @@ def _merge_overlapping(self, candidates, iou_threshold=0.3):
 
 **鲁棒性体现**：避免同一车牌被重复检测多次
 
-### 6.4 畸变校正
+### 3.4 畸变校正
 
-**实现代码**（`image_process.py:634-692`）：
+**实现代码**（`image_process.py:491-537`）：
 
 ```python
 # 计算旋转角度
@@ -323,11 +325,11 @@ plate_region = cv2.resize(plate_region, (PLATE_STANDARD_WIDTH, PLATE_STANDARD_HE
 
 ---
 
-## 三、字符分割
+## 四、字符分割
 
-### 6.1 预处理
+### 4.1 预处理
 
-**实现代码**（`char_segment.py:34-67`）：
+**实现代码**（`char_segment.py:29-50`）：
 
 ```python
 # 1. 灰度化
@@ -347,9 +349,9 @@ binary = cv2.adaptiveThreshold(
 - **自适应阈值**：处理车牌光照不均（如一侧亮一侧暗）
 - **反转**：使字符为白色（前景），便于轮廓检测
 
-### 6.2 形态学处理
+### 4.2 形态学处理
 
-**实现代码**（`char_segment.py:149-154`）：
+**实现代码**（`char_segment.py:126-130`）：
 
 ```python
 # 先开运算：去除噪点
@@ -369,11 +371,11 @@ binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, close_kernel)
 - 开运算核 (7, 7)：去除 7×7 以下的噪点
 - 闭运算核 (7, 7)：连接 7 像素内的断裂
 
-### 6.3 边缘清除（关键创新）
+### 4.3 边缘清除（关键创新）
 
 **问题**：车牌边框在二值化后可能与字符连接，形成一个大的连通域，导致 `cv2.RETR_EXTERNAL` 只检测到边框而检测不到内部字符。
 
-**解决方案**（`char_segment.py:81-90`）：
+**解决方案**（`char_segment.py:62-67`）：
 
 ```python
 # 涂黑图像边缘 30 像素，断开边框与字符的连接
@@ -389,9 +391,9 @@ binary_image[:, -edge_width:] = 0  # 右边
 - 避免复杂的轮廓层级处理（`cv2.RETR_TREE`）
 - 30 像素足够覆盖车牌边框宽度（车牌统一缩放到 800×400）
 
-### 6.4 字符轮廓筛选
+### 4.4 字符轮廓筛选
 
-**实现代码**（`char_segment.py:99-127`）：
+**实现代码**（`char_segment.py:69-109`）：
 
 | 筛选条件 | 配置参数 | 范围 | 说明 |
 |----------|---------|------|------|
@@ -401,17 +403,17 @@ binary_image[:, -edge_width:] = 0  # 右边
 | 边缘距离 | `CHAR_EDGE_MARGIN` | 2像素 | 排除靠近边缘的轮廓 |
 | Y 坐标 | - | 下部 2/3 | 只识别车牌号码，忽略上部地区名 |
 
-**Y 坐标筛选代码**（`char_segment.py:126-127`）：
+**Y 坐标筛选代码**（`char_segment.py:107`）：
 ```python
 # 过滤掉车牌上部1/3区域的字符（地区名如"广州"、"东莞"等）
 char_contours = [c for c in char_contours if (c[1] + c[3] / 2) > img_height / 3]
 ```
 
-**排序**：按 X 坐标从左到右排序（`char_segment.py:130`）
+**排序**：按 X 坐标从左到右排序（`char_segment.py:110`）
 
-### 6.5 字符归一化
+### 4.5 字符归一化
 
-**实现代码**（`char_segment.py:181-215`）：
+**实现代码**（`char_segment.py:157-195`）：
 
 ```python
 def _normalize_char(self, char_image):
@@ -443,7 +445,7 @@ def _normalize_char(self, char_image):
 
 ## 五、字符识别（模板匹配）
 
-### 6.1 模板库
+### 5.1 模板库
 
 - **规格**：20×35 像素，二值图像
 - **内容**：
@@ -451,7 +453,7 @@ def _normalize_char(self, char_image):
   - 字母：A-Z（不含 I、O，24个）
   - 汉字：粤、广、佛、山、州、惠 等常见地区字
 
-**加载代码**（`match_ocr.py:35-68`）：
+**加载代码**（`match_ocr.py:29-68`）：
 ```python
 def _load_templates(self):
     for filename in os.listdir(self.templates_dir):
@@ -470,9 +472,9 @@ def _load_templates(self):
         self.templates[char_name] = template
 ```
 
-### 6.2 匹配算法（Jaccard + 像素相似度）
+### 5.2 匹配算法（Jaccard + 像素相似度）
 
-**实现代码**（`match_ocr.py:85-130`）：
+**实现代码**（`match_ocr.py:79-116`）：
 
 ```python
 def _match_template(self, char_image, template):
@@ -512,9 +514,9 @@ def _match_template(self, char_image, template):
 - 对位置偏移更宽容
 - 计算简单高效
 
-### 6.3 置信度阈值
+### 5.3 置信度阈值
 
-**实现代码**（`match_ocr.py:159-163`）：
+**实现代码**（`match_ocr.py:141-144`）：
 
 ```python
 # 检查置信度阈值
@@ -550,32 +552,32 @@ if not filtered_string:
 
 | 设计 | 实现位置 | 解决的问题 |
 |------|---------|-----------|
-| whiteness = V - S | `image_process.py:218` | 综合亮度和饱和度，更准确判断白色 |
-| 梯度递增检测 (1%→41%) | `image_process.py:402-469` | 适应不同亮度车牌，从亮到暗逐步检测 |
-| 区域排除机制 | `image_process.py:463-466` | 支持多车牌识别，避免重复检测 |
-| 长宽比过滤 (1.7-2.3) | `image_process.py:383-388` | 排除广告文字干扰 |
-| 角度过滤 (±35°) | `image_process.py:348-354` | 排除非水平背景区域 |
-| 矩形度过滤 (≥0.5) | `image_process.py:372-377` | 排除不规则轮廓 |
-| IoU 合并 (≤0.3) | `image_process.py:543-571` | 去除重复检测的同一车牌 |
-| 统一分辨率 (800×400) | `image_process.py:686-690` | 使后续处理参数稳定 |
+| whiteness = V - S | `image_process.py:167` | 综合亮度和饱和度，更准确判断白色 |
+| 梯度递增检测 (1%→41%) | `image_process.py:326-374` | 适应不同亮度车牌，从亮到暗逐步检测 |
+| 区域排除机制 | `image_process.py:369-371` | 支持多车牌识别，避免重复检测（筛选后排除） |
+| 长宽比过滤 (1.7-2.3) | `image_process.py:285-291` | 排除广告文字干扰 |
+| 角度过滤 (±35°) | `image_process.py:260-263` | 排除非水平背景区域 |
+| 矩形度过滤 (≥0.5) | `image_process.py:277-282` | 排除不规则轮廓 |
+| IoU 合并 (≤0.3) | `image_process.py:425-444` | 去除重复检测的同一车牌 |
+| 统一分辨率 (800×400) | `image_process.py:534-537` | 使后续处理参数稳定 |
 
 ### 6.2 字符分割阶段
 
 | 设计 | 实现位置 | 解决的问题 |
 |------|---------|-----------|
 | 自适应二值化 | `char_segment.py:42-48` | 处理车牌光照不均 |
-| 先开后闭形态学 | `char_segment.py:150-154` | 去噪 + 连接断裂笔画 |
-| 边缘清除 (30像素) | `char_segment.py:81-87` | 断开边框与字符的连接 |
-| Y 坐标筛选 (下部2/3) | `char_segment.py:126-127` | 只识别车牌号码，忽略地区名 |
-| 保持宽高比归一化 | `char_segment.py:185-213` | 避免字符变形，提高识别准确率 |
+| 先开后闭形态学 | `char_segment.py:126-130` | 去噪 + 连接断裂笔画 |
+| 边缘清除 (30像素) | `char_segment.py:62-67` | 断开边框与字符的连接 |
+| Y 坐标筛选 (下部2/3) | `char_segment.py:107` | 只识别车牌号码，忽略地区名 |
+| 保持宽高比归一化 | `char_segment.py:157-195` | 避免字符变形，提高识别准确率 |
 
 ### 6.3 字符识别阶段
 
 | 设计 | 实现位置 | 解决的问题 |
 |------|---------|-----------|
-| Jaccard + 像素相似度 | `match_ocr.py:96-128` | 对形变鲁棒，计算高效 |
-| 置信度阈值 (0.62) | `match_ocr.py:160` | 避免输出不确定结果 |
-| 车牌级过滤 | `visualize_result.py:95-100` | 减少假阳性输出 |
+| Jaccard + 像素相似度 | `match_ocr.py:79-116` | 对形变鲁棒，计算高效 |
+| 置信度阈值 (0.62) | `match_ocr.py:141` | 避免输出不确定结果 |
+| 车牌级过滤 | `visualize_result.py:84-90` | 减少假阳性输出 |
 
 ---
 
@@ -629,7 +631,7 @@ OCR_MIN_CONFIDENCE = 0.62         # 最小置信度阈值
 
 ### 并行处理参数
 ```python
-PARALLEL_WORKERS = 10             # 并行处理进程数
+PARALLEL_WORKERS = 5              # 并行处理进程数
 ```
 
 ---
@@ -638,7 +640,7 @@ PARALLEL_WORKERS = 10             # 并行处理进程数
 
 ### 8.1 多进程并行
 
-**实现代码**（`main.py:290-293`）：
+**实现代码**（`main.py:283-286`）：
 
 ```python
 with ProcessPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
@@ -649,7 +651,7 @@ with ProcessPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
 ```
 
 - **图像级并行**：每张图片串行处理，多张图片并行
-- **默认 10 进程**：可根据 CPU 核心数调整
+- **默认 5 进程**：可根据 CPU 核心数调整
 - **显著加速**：批量处理时间大幅缩短
 
 ### 8.2 算法时间复杂度
