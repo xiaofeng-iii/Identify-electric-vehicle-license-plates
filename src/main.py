@@ -15,6 +15,7 @@ import os
 import cv2
 import argparse
 import numpy as np
+import time
 from contextlib import contextmanager
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -242,6 +243,9 @@ def main():
         print(f"并行进程数: {PARALLEL_WORKERS}")
     print("=" * 50)
 
+    # 开始计时
+    start_time = time.time()
+
     # 批量处理
     success_count = 0
     total_plates = 0
@@ -303,9 +307,13 @@ def main():
                 print(f"  ✗ 处理失败: {plates_or_error}")
 
     # 统计摘要
+    elapsed_time = time.time() - start_time
     print("\n" + "=" * 50)
     print(f"处理完成: {success_count}/{len(images)} 张")
     print(f"识别车牌: {total_plates} 个")
+    print(f"总耗时: {elapsed_time:.2f} 秒")
+    if len(images) > 0:
+        print(f"平均每张: {elapsed_time / len(images):.2f} 秒")
     print(f"结果目录: output/results/")
     if args.debug:
         print(f"调试图片: output/debug_steps/")
