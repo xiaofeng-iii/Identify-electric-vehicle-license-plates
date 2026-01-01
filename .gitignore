@@ -213,3 +213,8 @@ __marimo__/
 
 # pycharm
 .idea/
+
+# claude
+CLAUDE.md
+
+TECH_DETAILS.md
